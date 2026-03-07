@@ -32,20 +32,26 @@ jobs:
         run: |
           pip install -r mcp_server/requirements.txt
 
+      - name: Install dependencies (api_server)
+        run: |
+          pip install -r api_server/requirements.txt
+
       - name: Install dependencies (tests)
         run: |
           pip install -r tests/requirements.txt
 
-      - name: Run tests (all)
+      - name: Run legacy REST server tests
         env:
           ENABLE_MC_SIMILARITY: "False"
         run: |
-          # Run full test suite; rely on test neo4j stub in tests/neo4j.py
-          pytest -q
+          pytest tests/test_patra_rest_services.py -q
 
       - name: Run MCP server tests
         env:
           ENABLE_MC_SIMILARITY: "False"
         run: |
-          # Run MCP server specific tests
           pytest tests/test_mcp_server.py -v
+
+      - name: Run API server tests
+        run: |
+          pytest tests/test_privacy.py -v
