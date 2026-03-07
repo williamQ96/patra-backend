@@ -47,7 +47,6 @@ async def get_model_card(
     include_private: bool = Depends(get_include_private),
 ):
     """Get a single model card by ID (integer). Returns 404 if private and caller has no JWT."""
-    mc_id = id
     query = """
         SELECT mc.id, mc.name, mc.version, mc.short_description,
                mc.full_description, mc.keywords, mc.author, mc.citation,
@@ -62,7 +61,7 @@ async def get_model_card(
         WHERE mc.id = $1
     """
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(query, mc_id)
+        row = await conn.fetchrow(query, id)
     if not row:
         raise HTTPException(status_code=404, detail="Model card not found")
     if row["is_private"] and not include_private:

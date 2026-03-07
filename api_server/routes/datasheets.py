@@ -78,6 +78,6 @@ async def get_datasheet(
         updated_at=row["updated_at"].isoformat() if row["updated_at"] else None,
         alternate_identifier=row["alternate_identifier"],
         related_identifier=row["related_identifier"],
-        model_card_id=row["model_card_id"],  # optional (int or None)
+        model_card_id=row["model_card_id"],
         dataset_schema_id=row["dataset_schema_id"],
     )

@@ -2,7 +2,6 @@ import asyncio
 import logging
 import os
 import ssl
-from contextlib import asynccontextmanager
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import asyncpg
