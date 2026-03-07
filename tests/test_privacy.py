@@ -5,7 +5,7 @@ Scenario 2 – Valid X-Tapis-Token: client sees all 10 model cards / datasheets.
 IDs are integers (1–10) per db/schema.dbml.
 """
 
-from api_server.tests.conftest import (
+from tests.conftest import (
     ALL_MC_IDS,
     PRIVATE_DS_IDENTIFIERS,
     PRIVATE_MC_IDS,
