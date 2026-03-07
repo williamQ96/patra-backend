@@ -1,0 +1,131 @@
+---
+config:
+  layout: elk
+  theme: mc
+  look: classic
+  class:
+    hideEmptyMembersBox: false
+---
+classDiagram
+direction LR
+    class Raw_Image {
+	    id : string - UUID of the raw image
+	    image_name : string - Name of the raw image
+	    ground_truth : string - Ground truth of the raw image
+    }
+
+    class User {
+	    id : string - ID of the User
+    }
+
+    class Model {
+	    id : string - Persistent ID of the Model
+	    name : string - Name of the Model
+	    version : string - Version of the Model
+	    description : string - Description of the Model
+	    owner : string - Owner of the Model
+	    location : string - Downloadable URL of the Model
+	    license : string - License under which the Model is released
+	    framework : string - One of: sklearn, tensorflow, pytorch, other
+	    model_type : string - One of: cnn, decision_tree, dnn, rnn, svm, kmeans, llm, random_forest, lstm, gnn, other
+	    test_accuracy : float - Accuracy on the test data
+	    model_metrics : array of object - Additional performance metrics
+	    inference_labels : string - Labels used for inference results
+	    model_structure : object - Structure of the Model(e.g. layers, architecture details)
+    }
+
+    class Edge_Device {
+	    id : string - ID of the Edge Device
+    }
+
+    class Model_Card {
+	    name : string - Name of the Model Card
+	    version : string - Version of the Model Card
+	    is_private : boolean - ICICLE project-level privacy compliance flag
+	    short_description : string - Short description for the Model Card
+	    full_description : string - Full description for the Model Card
+	    keywords : string - Keywords for the Model Card
+	    author : string - ORCID of the Author
+	    citation : string - Citation information for the Model Card
+	    input_data : string - Input data used for the Model creation
+	    input_type : string - Type of the input data
+	    output_data : string - Output artifacts of the Model pipeline
+	    foundational_model : string - URL of the foundational Model
+	    category : string - Category of Model
+	    documentation : string - URL link to documentation for the Model
+	    id : string - Persistent ID(PID) of the Model Card
+    }
+
+    class Datasheet {
+	    creator : string - Maps to DataCite Creator
+	    title : string - Maps to DataCite Title
+	    publisher : string - Maps to DataCite Publisher
+	    publication_year : integer - Maps to DataCite PublicationYear
+	    resource_type : string - Maps to DataCite ResourceType
+	    size : string - Maps to DataCite Size
+	    format : string - Maps to DataCite Format
+	    version : string - Maps to DataCite Version
+	    rights : string - Maps to DataCite Rights
+	    description : string - Maps to DataCite Description
+	    geo_location : string - Maps to DataCite GeoLocation
+	    category : string - Maps to DataCite Category
+	    is_private : boolean - ICICLE project-level privacy compliance flag
+	    identifier : string - Maps to DataCite Identifier(Monotonically increasing integer)
+	    date : timestamp - Maps to DataCite Date(updated)
+	    alternate_identifier : string - Maps to DataCite AlternateIdentifier(Link to the Schema)
+	    related_identifier : string - Maps to DataCite RelatedIdentifier(URL)
+    }
+
+    class Experiment_Result {
+	    id : string - ID of the Experiment Result
+	    start_ts : timestamp - Persistent timestamp tracking execution boundaries
+	    end_ts : timestamp - Persistent timestamp tracking execution boundaries
+	    average_accuracy : float - Dynamically computed overall accuracy
+	    total_images : integer - Aggregated performance totals summarizing workload
+	    total_predictions : integer - Aggregated performance totals summarizing workload
+	    total_ground_truths : integer - Aggregated performance totals summarizing workload
+	    true_positives : integer - Granular correctness counts post-inference
+	    false_positives : integer - Granular correctness counts post-inference
+	    false_negatives : integer - Granular correctness counts post-inference
+	    precision : float - ML evaluation metric
+	    recall : float - ML evaluation metric
+	    f1_score : float - ML evaluation metric
+	    mean_iou : float - Object detection effectiveness metric
+	    map_50 : float - Object detection effectiveness metric
+	    map_50_95 : float - Object detection effectiveness metric
+    }
+
+    class Dataset_Schema {
+	    id : string - Unique identifier of specific schema format
+	    blob : jsonb - Full schema blob
+    }
+
+    class Experiment_Plan {
+	    id : string - Unique identifier linking intent to results
+	    configurations : jsonb - Explicit parameters and software setups
+	    workflow : jsonb - workflow representing intent and sequence
+    }
+
+    Experiment_Plan "0..*" --> "1" User : SUBMITTED_BY
+    Experiment_Plan "0..*" --> "1..*" Edge_Device : PLANNED_ON
+    Experiment_Plan "0..*" --> "1" Model : USES
+    Experiment_Plan "1" --> "0..*" Experiment_Result : GENERATES
+    Raw_Image "1..*" --> "0..*" Experiment_Result : PROCESSED_BY<br>(image_count,<br>scores [],<br>image_receiving_ts,<br>image_scoring_ts,<br>image_store_delete_ts,<br>image_decision,<br>ingestion_ts)
+    Model "1" --> "1" Model_Card : DOCUMENTED_BY
+    Model_Card "1" --> "1..*" Datasheet : TRAINED_ON
+    Datasheet "1" --> "0" Dataset_Schema : HAS_SCHEMA
+
+	class Raw_Image:::Rose
+	class User:::Rose
+	class Model:::Sky
+	class Edge_Device:::Rose
+	class Model_Card:::Sky
+	class Datasheet:::Peach
+	class Experiment_Result:::Rose
+	class Dataset_Schema:::Peach
+	class Experiment_Plan:::Rose
+
+	classDef Rose :,fill:#FFDFE5,stroke:#FF5978,color:#8E2236
+	classDef Ash :,fill:#EEEEEE,stroke:#999999,color:#000000
+	classDef Sky :,fill:#E2EBFF,stroke:#374D7C,color:#374D7C
+	classDef Peach :,fill:#FFEFDB,stroke:#FBB35A,color:#8F632D

@@ -1,0 +1,171 @@
+Project migrated_graph_to_relational {
+  database_type: "PostgreSQL"
+}
+
+Enum approval_status {
+  pending
+  approved
+  rejected
+}
+
+Table users {
+  id bigint [pk, increment]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table edge_devices {
+  id bigint [pk, increment]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table dataset_schemas {
+  id bigint [pk, increment]
+  blob jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table model_cards {
+  id bigint [pk, increment]
+  name text [not null]
+  version text
+  is_private boolean [not null, default: false]
+  status approval_status [not null, default: 'pending']
+  short_description text
+  full_description text
+  keywords text
+  author text
+  citation text
+  input_data text
+  input_type text
+  output_data text
+  foundational_model text
+  category text
+  documentation text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table datasheets {
+  identifier bigint [pk, increment]
+  creator text
+  title text [not null]
+  publisher text
+  publication_year integer
+  resource_type text
+  size text
+  format text
+  version text
+  rights text
+  description text
+  geo_location text
+  category text
+  is_private boolean [not null, default: false]
+  status approval_status [not null, default: 'pending']
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+  alternate_identifier text
+  related_identifier text
+
+  model_card_id bigint [ref: > model_cards.id]
+  dataset_schema_id bigint [ref: > dataset_schemas.id]
+
+  indexes {
+    (model_card_id)
+    (dataset_schema_id)
+    (status)
+  }
+}
+
+Table models {
+  id bigint [pk, increment]
+  name text [not null]
+  version text
+  description text
+  owner text
+  location text
+  license text
+  framework text
+  model_type text
+  test_accuracy numeric(6,5)
+  model_metrics jsonb
+  inference_labels jsonb
+  model_structure jsonb
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  model_card_id bigint [not null, unique, ref: > model_cards.id]
+
+  indexes {
+    (model_card_id)
+  }
+}
+
+Table experiments {
+  id bigint [pk, increment]
+  start_at timestamptz [not null]
+  submitted_at timestamptz
+  executed_at timestamptz
+  model_used_at timestamptz
+
+  total_images integer
+  total_predictions integer
+  total_ground_truth_objects integer
+  true_positives integer
+  false_positives integer
+  false_negatives integer
+  precision numeric(6,5)
+  recall numeric(6,5)
+  f1_score numeric(6,5)
+  mean_iou numeric(6,5)
+  map_50 numeric(6,5)
+  map_50_95 numeric(6,5)
+
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  user_id bigint [not null, ref: > users.id]
+  edge_device_id bigint [not null, ref: > edge_devices.id]
+  model_id bigint [not null, ref: > models.id]
+
+  indexes {
+    (user_id)
+    (edge_device_id)
+    (model_id)
+    (start_at)
+  }
+}
+
+Table raw_images {
+  id bigint [pk, increment]
+  image_name text [not null]
+  ground_truth jsonb
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table experiment_images {
+  id bigint [pk, increment]
+  experiment_id bigint [not null, ref: > experiments.id]
+  raw_image_id bigint [not null, ref: > raw_images.id]
+
+  image_count integer
+  image_received_at timestamptz
+  image_scored_at timestamptz
+  image_store_deleted_at timestamptz
+  image_decision text
+  top_label text
+  top_probability numeric(8,7)
+  ingested_at timestamptz [not null]
+  scores jsonb
+
+  indexes {
+    (experiment_id)
+    (raw_image_id)
+    (experiment_id, raw_image_id) [unique]
+    (image_received_at)
+    (ingested_at)
+  }
+}
