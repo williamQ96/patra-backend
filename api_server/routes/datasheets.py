@@ -6,17 +6,17 @@ from api_server.database import get_pool
 from api_server.deps import get_include_private
 from api_server.models import DatasheetDetail, DatasheetSummary
 
-router = APIRouter(prefix="/datasheets", tags=["datasheets"])
+router = APIRouter(tags=["datasheets"])
 
 
-@router.get("", response_model=list[DatasheetSummary])
+@router.get("/datasheets", response_model=list[DatasheetSummary])
 async def list_datasheets(
     pool: asyncpg.Pool = Depends(get_pool),
     include_private: bool = Depends(get_include_private),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
 ):
-    """List all datasheets. HTTPS shows private; HTTP shows only public."""
+    """List all datasheets. JWT bearer shows private; unauthenticated shows only public."""
     where = "" if include_private else " WHERE is_private = false"
     query = f"""
         SELECT identifier, title, creator, category
@@ -38,17 +38,17 @@ async def list_datasheets(
     ]
 
 
-@router.get("/{identifier}", response_model=DatasheetDetail)
+@router.get("/datasheet/{identifier}", response_model=DatasheetDetail)
 async def get_datasheet(
     identifier: int,
     pool: asyncpg.Pool = Depends(get_pool),
     include_private: bool = Depends(get_include_private),
 ):
-    """Get a single datasheet by identifier. Returns 404 if private and request is HTTP."""
+    """Get a single datasheet by identifier. Returns 404 if private and caller has no JWT."""
     query = """
         SELECT identifier, creator, title, publisher, publication_year,
                resource_type, size, format, version, rights, description,
-               geo_location, category, is_private, status, updated_at,
+               geo_location, category, is_private, updated_at,
                alternate_identifier, related_identifier,
                model_card_id, dataset_schema_id
         FROM datasheets
@@ -75,7 +75,6 @@ async def get_datasheet(
         geo_location=row["geo_location"],
         category=row["category"],
         is_private=row["is_private"],
-        status=str(row["status"]) if row["status"] else None,
         updated_at=row["updated_at"].isoformat() if row["updated_at"] else None,
         alternate_identifier=row["alternate_identifier"],
         related_identifier=row["related_identifier"],

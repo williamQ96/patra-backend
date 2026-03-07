@@ -78,9 +78,8 @@ class DatasheetDetail(BaseModel):
     geo_location: Optional[str] = None
     category: Optional[str] = None
     is_private: bool = False
-    status: Optional[str] = None
     updated_at: Optional[str] = None
     alternate_identifier: Optional[str] = None
     related_identifier: Optional[str] = None
-    model_card_id: int
-    dataset_schema_id: Optional[int] = None
+    model_card_id: str
+    dataset_schema_id: Optional[str] = None

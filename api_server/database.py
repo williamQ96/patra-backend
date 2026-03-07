@@ -1,19 +1,89 @@
+import asyncio
+import logging
 import os
+import ssl
 from contextlib import asynccontextmanager
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import asyncpg
 
+log = logging.getLogger(__name__)
+
 _pool: asyncpg.Pool | None = None
+
+_MAX_RETRIES = 5
+_RETRY_DELAY_S = 3
+
+
+_TAPIS_PODS_SUFFIX = ".pods.icicleai.tapis.io"
+_TAPIS_PG_PORT = 443
+
+
+def _build_ssl_and_dsn(raw_url: str) -> tuple[str, ssl.SSLContext | bool]:
+    """Normalise DSN for asyncpg: fix Tapis Pods port and extract sslmode.
+
+    Tapis Pods exposes PostgreSQL on port 443 (with in-band SSLRequest),
+    not on the conventional 5432 which is firewalled.  If the host looks
+    like a Tapis pod and the port is 5432, rewrite it to 443.
+
+    asyncpg doesn't reliably consume the ``sslmode`` query-string parameter
+    the way libpq/psycopg2 does, so we strip it and pass ``ssl`` explicitly.
+    """
+    parsed = urlparse(raw_url)
+
+    # Tapis Pods: rewrite 5432 → 443
+    host = parsed.hostname or ""
+    port = parsed.port
+    if host.endswith(_TAPIS_PODS_SUFFIX) and port in (5432, None):
+        netloc = parsed.netloc.replace(f":{port}", f":{_TAPIS_PG_PORT}", 1) if port else f"{parsed.netloc}:{_TAPIS_PG_PORT}"
+        parsed = parsed._replace(netloc=netloc)
+        log.info("Tapis Pods host detected — rewriting port %s → %s", port, _TAPIS_PG_PORT)
+
+    qs = parse_qs(parsed.query)
+    sslmode = qs.pop("sslmode", [None])[0]
+
+    clean_url = urlunparse(parsed._replace(query=urlencode(qs, doseq=True)))
+
+    if sslmode in ("require", "prefer"):
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        return clean_url, ctx
+    if sslmode in ("verify-ca", "verify-full"):
+        return clean_url, ssl.create_default_context()
+    return clean_url, False
 
 
 async def init_pool() -> asyncpg.Pool:
-    """Create connection pool. Called during app lifespan startup."""
+    """Create connection pool with retries. Called during app lifespan startup."""
     global _pool
     url = os.getenv("DATABASE_URL")
     if not url:
         raise ValueError("DATABASE_URL environment variable is required")
-    _pool = await asyncpg.create_pool(url, min_size=1, max_size=10, command_timeout=60)
-    return _pool
+
+    dsn, ssl_arg = _build_ssl_and_dsn(url)
+
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            _pool = await asyncpg.create_pool(
+                dsn,
+                ssl=ssl_arg,
+                min_size=1,
+                max_size=10,
+                command_timeout=60,
+                timeout=30,
+            )
+            log.info("Database pool ready (attempt %d)", attempt)
+            return _pool
+        except (OSError, asyncpg.PostgresError, TimeoutError) as exc:
+            if attempt == _MAX_RETRIES:
+                raise
+            log.warning(
+                "DB connection attempt %d/%d failed (%s), retrying in %ds …",
+                attempt, _MAX_RETRIES, exc, _RETRY_DELAY_S,
+            )
+            await asyncio.sleep(_RETRY_DELAY_S)
+    raise RuntimeError("Unreachable")
 
 
 async def close_pool() -> None:

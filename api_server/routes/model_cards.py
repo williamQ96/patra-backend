@@ -6,17 +6,17 @@ from api_server.database import get_pool
 from api_server.deps import get_include_private
 from api_server.models import AIModel, ModelCardDetail, ModelCardSummary
 
-router = APIRouter(prefix="/modelcards", tags=["model_cards"])
+router = APIRouter(tags=["model_cards"])
 
 
-@router.get("", response_model=list[ModelCardSummary])
+@router.get("/modelcards", response_model=list[ModelCardSummary])
 async def list_model_cards(
     pool: asyncpg.Pool = Depends(get_pool),
     include_private: bool = Depends(get_include_private),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
 ):
-    """List all model cards. HTTPS shows private; HTTP shows only public."""
+    """List all model cards. JWT bearer shows private; unauthenticated shows only public."""
     where = "" if include_private else " WHERE is_private = false"
     query = f"""
         SELECT id, name, version, short_description
@@ -38,13 +38,13 @@ async def list_model_cards(
     ]
 
 
-@router.get("/{id}", response_model=ModelCardDetail)
+@router.get("/modelcard/{id}", response_model=ModelCardDetail)
 async def get_model_card(
-    id: int,
+    id: str,
     pool: asyncpg.Pool = Depends(get_pool),
     include_private: bool = Depends(get_include_private),
 ):
-    """Get a single model card by ID. Returns 404 if private and request is HTTP."""
+    """Get a single model card by ID. Returns 404 if private and caller has no JWT."""
     query = """
         SELECT mc.id, mc.name, mc.version, mc.short_description,
                mc.full_description, mc.keywords, mc.author, mc.citation,

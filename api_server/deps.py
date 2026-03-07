@@ -1,11 +1,22 @@
+import logging
+
 from fastapi import Request
+
+log = logging.getLogger(__name__)
+
+TAPIS_TOKEN_HEADER = "X-Tapis-Token"
 
 
 def get_include_private(request: Request) -> bool:
+    """Return True when the caller presents a Tapis token via X-Tapis-Token.
+
+    The patra-toolkit authenticates against Tapis OAuth2 and passes the
+    resulting access token in the ``X-Tapis-Token`` header.  Presence of
+    any non-empty value is treated as authenticated (matching the legacy
+    Flask server behaviour).  No token falls back to public-only.
     """
-    Returns True if private records (is_private=True) should be included.
-    HTTPS -> include private; HTTP -> exclude private.
-    When behind a proxy, trust X-Forwarded-Proto (use uvicorn --proxy-headers).
-    """
-    scheme = request.headers.get("X-Forwarded-Proto", request.url.scheme)
-    return scheme.lower() == "https"
+    token = request.headers.get(TAPIS_TOKEN_HEADER)
+    if not token:
+        return False
+    log.debug("X-Tapis-Token present – including private records")
+    return True

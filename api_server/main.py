@@ -16,7 +16,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="Patra Privacy API",
-    description="API for model cards and datasheets with HTTPS-aware privacy",
+    description="API for model cards and datasheets with JWT-aware privacy",
     version="1.0",
     lifespan=lifespan,
 )
