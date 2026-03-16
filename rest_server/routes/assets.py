@@ -1,5 +1,5 @@
-import json
 import logging
+import json
 from collections.abc import Sequence
 
 import asyncpg
@@ -423,7 +423,7 @@ async def _create_datasheet_in_tx(
                 item.box_east,
                 item.box_south,
                 item.box_north,
-                json.dumps(item.polygon),
+                json.dumps(item.polygon) if item.polygon is not None else None,
             )
             for item in asset.geo_locations
         ],

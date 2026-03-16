@@ -1,3 +1,5 @@
+import json
+
 from fastapi import APIRouter, Depends, Query
 
 import asyncpg
@@ -23,6 +25,20 @@ from rest_server.models import (
 )
 
 router = APIRouter(tags=["datasheets"])
+
+
+def _normalize_polygon(value):
+    if value in (None, "", "null"):
+        return None
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    return None
 
 
 @router.get("/datasheets", response_model=list[DatasheetSummary])
@@ -363,7 +379,7 @@ async def get_datasheet(
                 box_east=float(r["box_east"]) if r["box_east"] is not None else None,
                 box_south=float(r["box_south"]) if r["box_south"] is not None else None,
                 box_north=float(r["box_north"]) if r["box_north"] is not None else None,
-                polygon=r["polygon"],
+                polygon=_normalize_polygon(r["polygon"]),
             )
             for r in geo_rows
         ],
