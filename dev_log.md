@@ -1,5 +1,55 @@
 # Dev Log
 
+## Version 0.1.6 - 2026-03-15
+
+### Context
+
+After the live frontend was updated to read from the PostgreSQL-backed backend, model card and datasheet detail pages still failed in practice. The regression surfaced as frontend `not found` pages for detail navigation, and a deeper live validation pass also exposed a backend-only datasheet detail failure when geo-location polygons were stored as null-like values.
+
+### Problem
+
+- The active frontend and backend had drifted on list/detail payload contracts:
+  - model-card list responses return `mc_id`, while the older UI expected `id`
+  - datasheet list responses return `identifier`, while the older UI expected `id`
+- Datasheet detail responses could fail with `500` when `datasheet_geo_locations.polygon` was stored as a JSON stringified null value.
+- End-to-end moderation workflows needed to be revalidated after the detail-page repair:
+  - asset submission
+  - support ticket submission
+  - admin approval / resolution
+
+### Engineering Approach
+
+- Leave the frontend-facing backend contract unchanged and harden the backend around the live datasheet edge case instead of introducing a second round of API churn.
+- Fix geo-location writes and reads together so newly created rows do not persist invalid null polygons and existing rows remain readable.
+- Revalidate the full submission / ticket / admin-review workflow through the actual HTTP/UI surfaces, not just isolated route tests.
+
+### Implementation
+
+- Updated `rest_server/routes/assets.py` so datasheet geo-location inserts now write `NULL` for `polygon` when the payload omits polygon data, instead of serializing Python `None` to the string `"null"`.
+- Updated `rest_server/routes/datasheets.py` to normalize `polygon` values defensively on read:
+  - `None`
+  - empty string
+  - string `"null"`
+  - JSON strings that decode to non-object values
+- Confirmed live moderation flow behavior against the running local stack:
+  - `POST /submissions`
+  - `PUT /submissions/{id}`
+  - `POST /tickets`
+  - `PUT /tickets/{id}`
+  - final asset publication through approval-time ingest helpers
+
+### Validation
+
+- Local live-stack browser validation completed successfully:
+  - asset-link submission queued
+  - admin approval created a real model card record
+  - support ticket submission succeeded
+  - admin resolution persisted and became visible to the submitting user
+- Direct API verification confirmed:
+  - approved submission stored `created_asset_id`
+  - resolved ticket stored `reviewed_by` and `admin_response`
+  - `GET /datasheet/{identifier}` returned `200` after the geo-location hardening fix
+
 ## Version 0.1.5 - 2026-03-13
 
 ### Context
