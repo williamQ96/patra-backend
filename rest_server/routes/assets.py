@@ -224,6 +224,16 @@ async def _create_datasheet_in_tx(
         )
 
     publisher_id = await _find_publisher_id(conn, asset.publisher.model_dump(exclude_none=True) if asset.publisher else None)
+    dataset_schema_id = asset.dataset_schema_id
+    if dataset_schema_id is None and asset.dataset_schema_blob is not None:
+        dataset_schema_id = await conn.fetchval(
+            """
+            INSERT INTO dataset_schemas (blob, created_at, updated_at)
+            VALUES ($1::jsonb, NOW(), NOW())
+            RETURNING id
+            """,
+            json.dumps(asset.dataset_schema_blob),
+        )
     datasheet_id = await conn.fetchval(
         """
         INSERT INTO datasheets (
@@ -243,7 +253,7 @@ async def _create_datasheet_in_tx(
         asset.format,
         asset.version,
         asset.is_private,
-        asset.dataset_schema_id,
+        dataset_schema_id,
         publisher_id,
     )
 

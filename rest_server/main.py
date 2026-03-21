@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import asyncpg
 
 from rest_server.database import close_pool, get_pool, init_pool
-from rest_server.routes import assets, datasheets, model_cards, submissions, tickets
+from rest_server.routes import agent_tools, assets, datasheets, model_cards, submissions, tickets
 
 log = logging.getLogger(__name__)
 
@@ -40,6 +40,7 @@ app.include_router(datasheets.router)
 app.include_router(assets.router)
 app.include_router(submissions.router)
 app.include_router(tickets.router)
+app.include_router(agent_tools.router)
 
 
 @app.get("/")

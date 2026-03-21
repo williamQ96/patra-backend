@@ -1,5 +1,104 @@
 # Dev Log
 
+## Version 0.3.0 - 2026-03-21
+
+### Context
+
+This milestone turns the earlier PATRA schema-search prototype into a backend workflow that can support agent-assisted dataset substitution. The goal is not only to rank public dataset-backed schemas against a paper-derived query schema, but also to operationalize the next step: materializing only those missing columns that are explicitly marked as derivable with provenance, packaging the result as a synthesized artifact, and routing that artifact into PATRA's existing admin review workflow.
+
+### Problem
+
+- The prior backend implementation stopped at analysis:
+  - `paper -> schema -> schema-pool search`
+  - `missing-column feasibility`
+- There was no safe execution path for Stage A/B/C/D:
+  - no transformation-plan generation
+  - no deterministic executor
+  - no artifact persistence or download
+  - no review submission path for newly synthesized dataset-schema pairs
+- The PATRA workflow needed a hard boundary between:
+  - search-time ranking
+  - generation of derivable fields
+  - admission into the shared pool
+
+### Philosophy
+
+- Keep the paper-to-schema path code-first and auditable.
+- Permit LLM usage only where it improves planning rather than value generation.
+- Treat the LLM as a constrained planner, not as a data generator.
+- Require code execution and validation before accepting any synthesized column.
+- Require PATRA admin review before a generated dataset-schema pair is eligible for shared-pool admission.
+
+### Implementation
+
+- Added PATRA agent-tool request and response contracts in `rest_server/agent_tool_models.py` for:
+  - synthesis requests
+  - generated artifact summaries
+  - validation issue reporting
+  - review-submission responses
+- Added `rest_server/patra_agent_service.py` to expose:
+  - public schema-pool listing
+  - paper-to-schema search
+  - missing-column feasibility analysis
+- Added `rest_server/patra_synthesis_service.py` to implement Stage A/B/C/D:
+  - Stage A: optional LLM-assisted transformation-plan generation using local OpenAI-compatible endpoints
+  - Stage B: deterministic execution over allowed operations only
+  - Stage C: schema/type/shape validation and provenance capture
+  - Stage D: artifact materialization to disk for PATRA review and download
+- Added `rest_server/routes/agent_tools.py` endpoints for:
+  - `GET /agent-tools/schema-pool`
+  - `POST /agent-tools/paper-schema-search`
+  - `POST /agent-tools/missing-column-analysis`
+  - `POST /agent-tools/generate-synthesized-dataset`
+  - `GET /agent-tools/generated-artifacts/{artifact_key}`
+  - `GET /agent-tools/generated-artifacts/{artifact_key}/download.csv`
+  - `GET /agent-tools/generated-artifacts/{artifact_key}/download-schema`
+  - `POST /agent-tools/generated-artifacts/{artifact_key}/submit-review`
+- Extended datasheet ingest so a review-approved generated artifact can carry a schema directly through `dataset_schema_blob`, without requiring a pre-created schema row.
+- Added `generated_dataset_artifacts` persistence and corrected bootstrap ordering so its foreign key to `submission_queue` is created safely.
+
+### How-To Workflow
+
+1. Run `POST /agent-tools/paper-schema-search` with exactly one input source:
+   - server document path
+   - public document URL
+   - pasted schema text
+2. Use the returned query schema to run `POST /agent-tools/missing-column-analysis` for a selected public candidate.
+3. Only if one or more fields are classified as `derivable with provenance`, call `POST /agent-tools/generate-synthesized-dataset`.
+4. Optionally enable LLM planning:
+   - the LLM may propose a structured transformation plan
+   - the backend still executes the plan deterministically
+   - invalid or underspecified LLM plans fall back to deterministic planning
+5. Review:
+   - generated preview rows
+   - validation issues
+   - download links for CSV and schema
+6. If the artifact should enter PATRA, submit it through `POST /agent-tools/generated-artifacts/{artifact_key}/submit-review`.
+7. PATRA admins review the queued submission before the synthesized dataset-schema pair is admitted into the shared datasheet pool.
+
+### Validation
+
+- `python -m compileall rest_server` -> passed
+- Local backend + live frontend validation completed against:
+  - `wheat_feature_schema.docx`
+  - `sugarcane_meteorological`
+- Confirmed end-to-end:
+  - derivable-field gating
+  - LLM-assisted planning with local `qwen/qwen3.5-9b`
+  - deterministic execution of monthly aggregation and year extraction
+  - artifact download
+  - PATRA submission queue handoff for admin review
+
+### Action Points
+
+- Add admin review UI affordances that make generated-artifact provenance easier to inspect before approval.
+- Decide whether approved synthesized artifacts should be auto-indexed into the PATRA public schema pool or first pass through a curator-controlled publish step.
+- Expand the deterministic executor to cover additional safe transformations such as unit normalization and explicit join-based enrichment.
+- Add backend tests around:
+  - LLM-plan validation fallbacks
+  - artifact persistence
+  - approval-time datasheet admission with embedded generated schemas
+
 ## Version 0.1.6 - 2026-03-15
 
 ### Context

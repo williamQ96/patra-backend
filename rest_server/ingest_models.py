@@ -220,6 +220,7 @@ class AssetDatasheetCreate(BaseModel):
     version: str | None = None
     is_private: bool = False
     dataset_schema_id: int | None = None
+    dataset_schema_blob: dict[str, Any] | None = None
     publisher: AssetPublisherCreate | None = None
     creators: list[AssetDatasheetCreatorCreate] = Field(default_factory=list)
     titles: list[AssetDatasheetTitleCreate] = Field(default_factory=list)
