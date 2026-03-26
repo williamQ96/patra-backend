@@ -67,7 +67,7 @@ The primary REST API is implemented with FastAPI and backed by PostgreSQL. It is
 
 The FastAPI app is exposed via the `rest_server` package (see `rest_server/main.py`) and is built into the Docker image `plalelab/patra-backend:latest` using `rest_server/Dockerfile` (see `scripts/build-push-backend.sh`).
 
-#### 2. Legacy REST Server (Flask + Neo4j, Suspended)
+#### 2. Legacy REST Server (Flask + Neo4j)
 
 The legacy REST server is built using Flask and exposes a RESTful API for interaction with the Patra Knowledge Graph (KG) stored in Neo4j. It is retained in-repo for archive/reference purposes only and is not part of the active backend going forward.
 
