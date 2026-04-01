@@ -1,12 +1,14 @@
 from contextlib import asynccontextmanager
+import asyncio
 import logging
+import os
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import asyncpg
 
 from rest_server.database import close_pool, get_pool, init_pool
-from rest_server.routes import assets, datasheets, model_cards, submissions, tickets
+from rest_server.routes import agent_tools, assets, datasheets, model_cards, submissions, tickets
 
 log = logging.getLogger(__name__)
 
@@ -14,8 +16,28 @@ log = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("Starting Patra FastAPI backend")
-    await init_pool()
+    pool = await init_pool()
+    backup_task = None
+    interval_seconds = int(os.getenv("ASSET_PERIODIC_BACKUP_INTERVAL_SECONDS", "0") or "0")
+    if interval_seconds > 0:
+        async def _backup_loop():
+            while True:
+                try:
+                    await asyncio.sleep(interval_seconds)
+                    await assets.run_periodic_backup_once(pool)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    log.exception("Periodic asset backup run failed")
+
+        backup_task = asyncio.create_task(_backup_loop(), name="patra-periodic-asset-backups")
     yield
+    if backup_task is not None:
+        backup_task.cancel()
+        try:
+            await backup_task
+        except asyncio.CancelledError:
+            pass
     log.info("Stopping Patra FastAPI backend")
     await close_pool()
 
@@ -40,6 +62,7 @@ app.include_router(datasheets.router)
 app.include_router(assets.router)
 app.include_router(submissions.router)
 app.include_router(tickets.router)
+app.include_router(agent_tools.router)
 
 
 @app.get("/")

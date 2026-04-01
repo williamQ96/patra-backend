@@ -1,6 +1,6 @@
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 # --- Model Cards (matches rest_server MCReconstructor output) ---
@@ -234,3 +234,48 @@ class DatasheetDetail(BaseModel):
     descriptions: list[DatasheetDescription] = []
     geo_locations: list[DatasheetGeoLocation] = []
     funding_references: list[DatasheetFundingReference] = []
+
+
+class EditableRecordSummary(BaseModel):
+    asset_type: str
+    asset_id: int
+    title: str
+    subtitle: Optional[str] = None
+    description: Optional[str] = None
+    kind_label: str
+    updated_at: Optional[str] = None
+
+
+class AssetBackupRecord(BaseModel):
+    id: int
+    asset_type: str
+    asset_id: int
+    asset_version: int
+    backup_kind: str
+    sequence: int
+    file_path: Optional[str] = None
+    created_at: str
+
+
+class AssetBackupRunResult(BaseModel):
+    backup_kind: str
+    total_assets: int
+    created_backups: int
+
+
+class AssetFieldChange(BaseModel):
+    field: str
+    before: Optional[str] = None
+    after: Optional[str] = None
+    statement: str
+
+
+class AssetChangeLogEntry(BaseModel):
+    id: int
+    asset_type: str
+    asset_id: int
+    asset_version: int
+    changed_by: Optional[str] = None
+    changed_at: str
+    summary: Optional[str] = None
+    changes: list[AssetFieldChange] = Field(default_factory=list)

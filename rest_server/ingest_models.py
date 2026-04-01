@@ -56,6 +56,9 @@ class AssetModelCardCreate(BaseModel):
     documentation: str | None = None
     is_private: bool = False
     is_gated: bool = False
+    asset_version: int | None = None
+    previous_version_id: int | None = None
+    root_version_id: int | None = None
     ai_model: AssetAIModelCreate | None = None
     bias_analysis: dict[str, PrimitiveValue] = Field(default_factory=dict)
     xai_analysis: dict[str, PrimitiveValue] = Field(default_factory=dict)
@@ -220,6 +223,10 @@ class AssetDatasheetCreate(BaseModel):
     version: str | None = None
     is_private: bool = False
     dataset_schema_id: int | None = None
+    dataset_schema_blob: dict[str, Any] | None = None
+    asset_version: int | None = None
+    previous_version_id: int | None = None
+    root_version_id: int | None = None
     publisher: AssetPublisherCreate | None = None
     creators: list[AssetDatasheetCreatorCreate] = Field(default_factory=list)
     titles: list[AssetDatasheetTitleCreate] = Field(default_factory=list)
@@ -252,6 +259,15 @@ class AssetIngestResult(BaseModel):
     organization: str
     created: bool
     duplicate: bool = False
+
+
+class AssetUpdateResult(BaseModel):
+    asset_type: str
+    asset_id: int
+    organization: str
+    updated: bool = True
+    asset_version: int
+    backup_id: int | None = None
 
 
 class AssetBulkItemResult(BaseModel):
