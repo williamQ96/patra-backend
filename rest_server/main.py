@@ -7,7 +7,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import asyncpg
 
-from rest_server.database import close_pool, get_pool, init_pool
+from rest_server.database import close_pool, get_pool, init_pool, init_sensitive_pool
 from rest_server.routes import agent_tools, ask_patra, assets, automated_ingestion, datasheets, experiments, model_cards, submissions, tickets
 
 log = logging.getLogger(__name__)
@@ -20,6 +20,7 @@ async def lifespan(app: FastAPI):
     db_startup_timeout = int(os.getenv("DB_STARTUP_TIMEOUT_SECONDS", "12") or "12")
     try:
         pool = await asyncio.wait_for(init_pool(), timeout=db_startup_timeout)
+        await asyncio.wait_for(init_sensitive_pool(), timeout=db_startup_timeout)
     except Exception:
         log.exception("Database initialization failed within startup timeout; starting in degraded mode")
     backup_task = None

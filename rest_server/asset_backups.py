@@ -7,6 +7,7 @@ from pathlib import Path
 import asyncpg
 
 DEFAULT_BACKUP_DIR = "/tmp/patra-asset-backups"
+DATABASE_ONLY_STORAGE = "database"
 
 
 def _json_default(value):
@@ -19,6 +20,10 @@ def _json_default(value):
 
 def get_backup_dir() -> Path:
     return Path(os.getenv("ASSET_BACKUP_DIR", DEFAULT_BACKUP_DIR)).expanduser()
+
+
+def database_only_backups_enabled() -> bool:
+    return os.getenv("ASSET_BACKUP_STORAGE", "").strip().lower() == DATABASE_ONLY_STORAGE
 
 
 async def ensure_initial_backup(conn: asyncpg.Connection, asset_type: str, asset_id: int, asset_version: int, snapshot: dict) -> int | None:
@@ -54,7 +59,7 @@ async def record_backup(
         asset_type,
         asset_id,
     )
-    file_path = _write_backup_file(asset_type, asset_id, int(next_sequence), backup_kind, snapshot)
+    file_path = None if database_only_backups_enabled() else _write_backup_file(asset_type, asset_id, int(next_sequence), backup_kind, snapshot)
     backup_id = await conn.fetchval(
         """
         INSERT INTO asset_backups (
