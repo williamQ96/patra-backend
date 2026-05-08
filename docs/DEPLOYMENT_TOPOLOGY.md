@@ -5,9 +5,9 @@
 Use `patra-knowledge-base` / `patra-backend` as the only long-term backend codebase. Deploy two pods from the same image:
 
 - `patrabackend`: stable backend
-- `patrabackend-dev`: development backend
+- `patradev-backend`: development backend
 
-Both pods can point at the same PostgreSQL database.
+`patrabackend` points only at `patradb`. `patradev-backend` points at both `patradb` and `patradev-db`: the primary catalog remains in `patradb`, while sensitive dev snapshots use `patradev-db`.
 
 ## Route gating
 
@@ -23,7 +23,7 @@ Stable backend should leave these off. Dev backend should enable them.
 
 ```json
 {
-  "DATABASE_URL": "<shared-db-url>",
+  "DATABASE_URL": "<patradb-url>",
   "JWT_SECRET": "<secret>",
   "ENABLE_ASK_PATRA": "false",
   "ENABLE_AUTOMATED_INGESTION": "false",
@@ -35,7 +35,9 @@ Stable backend should leave these off. Dev backend should enable them.
 
 ```json
 {
-  "DATABASE_URL": "<shared-db-url>",
+  "DATABASE_URL": "<patradb-url>",
+  "SENSITIVE_DATABASE_URL": "<patradev-db-url>",
+  "ASSET_BACKUP_STORAGE": "database",
   "JWT_SECRET": "<secret>",
   "ENABLE_ASK_PATRA": "true",
   "ENABLE_AUTOMATED_INGESTION": "true",
@@ -60,7 +62,7 @@ These belong to the shared product surface and can be read/written by both stabl
 
 ## Dev-only tables
 
-These support experimental workflows and should only be written by `patrabackend-dev`:
+These support experimental workflows and should only be written by `patradev-backend`:
 
 - `scraper_jobs`
 - `automated_ingestion_artifacts`
@@ -73,7 +75,9 @@ Ask Patra currently stores conversation memory and prompt files on a mounted vol
 
 ## Database rules
 
-- One shared PostgreSQL instance is acceptable.
+- `patrabackend` must not receive `SENSITIVE_DATABASE_URL`.
+- `patradev-backend` must receive both `DATABASE_URL` and `SENSITIVE_DATABASE_URL`.
+- `ASSET_BACKUP_STORAGE=database` keeps sensitive asset backup snapshots in `patradev-db` instead of local JSON files.
 - Schema migrations must be forward compatible.
 - Dev-only workflows must write isolated tables, not shared catalog tables.
 - Promotion from dev-only state into shared catalog tables must be explicit.

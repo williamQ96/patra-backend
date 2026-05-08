@@ -11,6 +11,7 @@ from fastapi import HTTPException
 log = logging.getLogger(__name__)
 
 _pool: asyncpg.Pool | None = None
+_sensitive_pool: asyncpg.Pool | None = None
 
 _MAX_RETRIES = 5
 _RETRY_DELAY_S = 3
@@ -32,14 +33,13 @@ def _build_connection_options(raw_url: str) -> tuple[str, ssl.SSLContext | bool,
     """
     parsed = urlparse(raw_url)
 
-    # Tapis Pods: rewrite 5432 → 443
     host = parsed.hostname or ""
     port = parsed.port
     is_tapis_pod = host.endswith(_TAPIS_PODS_SUFFIX)
     if is_tapis_pod and port in (5432, None):
         netloc = parsed.netloc.replace(f":{port}", f":{_TAPIS_PG_PORT}", 1) if port else f"{parsed.netloc}:{_TAPIS_PG_PORT}"
         parsed = parsed._replace(netloc=netloc)
-        log.info("Tapis Pods host detected — rewriting port %s → %s", port, _TAPIS_PG_PORT)
+        log.info("Tapis Pods host detected; rewriting port %s to %s", port, _TAPIS_PG_PORT)
 
     qs = parse_qs(parsed.query)
     sslmode = qs.pop("sslmode", [None])[0]
@@ -56,18 +56,12 @@ def _build_connection_options(raw_url: str) -> tuple[str, ssl.SSLContext | bool,
     return clean_url, False, False
 
 
-async def init_pool() -> asyncpg.Pool:
-    """Create connection pool with retries. Called during app lifespan startup."""
-    global _pool
-    url = os.getenv("DATABASE_URL")
-    if not url:
-        raise ValueError("DATABASE_URL environment variable is required")
-
+async def _create_pool_from_url(url: str, *, label: str) -> asyncpg.Pool:
     dsn, ssl_arg, direct_tls = _build_connection_options(url)
 
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
-            _pool = await asyncpg.create_pool(
+            pool = await asyncpg.create_pool(
                 dsn,
                 ssl=ssl_arg,
                 direct_tls=direct_tls,
@@ -76,18 +70,42 @@ async def init_pool() -> asyncpg.Pool:
                 command_timeout=60,
                 timeout=30,
             )
-            await ensure_schema(_pool)
-            log.info("Database pool ready (attempt %d)", attempt)
-            return _pool
+            await ensure_schema(pool)
+            log.info("%s database pool ready (attempt %d)", label, attempt)
+            return pool
         except (OSError, asyncpg.PostgresError, TimeoutError) as exc:
             if attempt == _MAX_RETRIES:
                 raise
             log.warning(
-                "DB connection attempt %d/%d failed (%s), retrying in %ds …",
-                attempt, _MAX_RETRIES, exc, _RETRY_DELAY_S,
+                "%s DB connection attempt %d/%d failed (%s), retrying in %ds ...",
+                label, attempt, _MAX_RETRIES, exc, _RETRY_DELAY_S,
             )
             await asyncio.sleep(_RETRY_DELAY_S)
     raise RuntimeError("Unreachable")
+
+
+async def init_pool() -> asyncpg.Pool:
+    """Create primary connection pool with retries. Called during app lifespan startup."""
+    global _pool
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        raise ValueError("DATABASE_URL environment variable is required")
+
+    _pool = await _create_pool_from_url(url, label="Primary")
+    return _pool
+
+
+async def init_sensitive_pool() -> asyncpg.Pool | None:
+    """Create optional isolated pool for sensitive dev-only records."""
+    global _sensitive_pool
+    url = os.getenv("SENSITIVE_DATABASE_URL") or os.getenv("DEV_DATABASE_URL")
+    if not url:
+        _sensitive_pool = None
+        log.info("Sensitive database pool disabled")
+        return None
+
+    _sensitive_pool = await _create_pool_from_url(url, label="Sensitive")
+    return _sensitive_pool
 
 
 async def ensure_schema(pool: asyncpg.Pool) -> None:
@@ -101,15 +119,27 @@ async def ensure_schema(pool: asyncpg.Pool) -> None:
 
 
 async def close_pool() -> None:
-    """Close connection pool. Called during app lifespan shutdown."""
-    global _pool
+    """Close connection pools. Called during app lifespan shutdown."""
+    global _pool, _sensitive_pool
+    if _sensitive_pool:
+        await _sensitive_pool.close()
+        _sensitive_pool = None
     if _pool:
         await _pool.close()
         _pool = None
 
 
 def get_pool() -> asyncpg.Pool:
-    """FastAPI dependency: returns the connection pool."""
+    """FastAPI dependency: returns the primary connection pool."""
     if _pool is None:
         raise HTTPException(status_code=503, detail="database unavailable")
     return _pool
+
+
+def get_sensitive_pool() -> asyncpg.Pool:
+    """Return isolated sensitive-data pool, falling back to primary pool."""
+    return _sensitive_pool or get_pool()
+
+
+def has_sensitive_pool() -> bool:
+    return _sensitive_pool is not None

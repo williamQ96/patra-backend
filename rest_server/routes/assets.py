@@ -7,7 +7,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 
 from rest_server.asset_backups import ensure_initial_backup, record_backup
-from rest_server.database import get_pool
+from rest_server.database import get_pool, get_sensitive_pool
 from rest_server.deps import AssetIngestPrincipal, get_request_actor, require_asset_ingest_principal
 from rest_server.ingest_models import (
     AssetBulkDatasheetCreate,
@@ -23,6 +23,18 @@ from rest_server.models import AssetBackupRecord, AssetBackupRunResult, AssetCha
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/v1/assets", tags=["assets"])
+
+
+async def _ensure_initial_backup(asset_type: str, asset_id: int, asset_version: int, snapshot: dict) -> int | None:
+    backup_pool = get_sensitive_pool()
+    async with backup_pool.acquire() as conn:
+        return await ensure_initial_backup(conn, asset_type, asset_id, asset_version, snapshot)
+
+
+async def _record_backup(asset_type: str, asset_id: int, asset_version: int, backup_kind: str, snapshot: dict) -> int:
+    backup_pool = get_sensitive_pool()
+    async with backup_pool.acquire() as conn:
+        return await record_backup(conn, asset_type, asset_id, asset_version, backup_kind, snapshot)
 
 
 class AssetRevisionContext(NamedTuple):
@@ -908,7 +920,7 @@ async def _update_model_card_in_tx(
     if existing is None:
         raise HTTPException(status_code=404, detail="Model card not found")
 
-    await ensure_initial_backup(conn, "model_card", asset_id, int(existing["asset_version"]), existing)
+    await _ensure_initial_backup("model_card", asset_id, int(existing["asset_version"]), existing)
     field_changes = _build_field_changes(
         _model_card_edit_state_from_snapshot(existing),
         _model_card_edit_state_from_asset(asset),
@@ -1021,7 +1033,7 @@ async def _update_model_card_in_tx(
             )
 
     updated_snapshot = await _fetch_model_card_snapshot(conn, asset_id)
-    backup_id = await record_backup(conn, "model_card", asset_id, next_version, "update", updated_snapshot)
+    backup_id = await _record_backup("model_card", asset_id, next_version, "update", updated_snapshot)
     await _record_change_log(conn, "model_card", asset_id, next_version, changed_by, field_changes)
     return AssetUpdateResult(
         asset_type="model_card",
@@ -1163,7 +1175,7 @@ async def _update_datasheet_in_tx(
     if existing is None:
         raise HTTPException(status_code=404, detail="Datasheet not found")
 
-    await ensure_initial_backup(conn, "datasheet", asset_id, int(existing["asset_version"]), existing)
+    await _ensure_initial_backup("datasheet", asset_id, int(existing["asset_version"]), existing)
     field_changes = _build_field_changes(
         _datasheet_edit_state_from_snapshot(existing),
         _datasheet_edit_state_from_asset(asset),
@@ -1212,7 +1224,7 @@ async def _update_datasheet_in_tx(
     )
     await _replace_datasheet_children(conn, asset_id, asset)
     updated_snapshot = await _fetch_datasheet_snapshot(conn, asset_id)
-    backup_id = await record_backup(conn, "datasheet", asset_id, next_version, "update", updated_snapshot)
+    backup_id = await _record_backup("datasheet", asset_id, next_version, "update", updated_snapshot)
     await _record_change_log(conn, "datasheet", asset_id, next_version, changed_by, field_changes)
     return AssetUpdateResult(
         asset_type="datasheet",
@@ -1390,9 +1402,9 @@ async def list_asset_backups(
     asset_type: str = Path(..., pattern="^(model_card|datasheet)$"),
     asset_id: int = Path(..., ge=1),
     principal: AssetIngestPrincipal = Depends(require_asset_ingest_principal),
-    pool: asyncpg.Pool = Depends(get_pool),
 ):
-    async with pool.acquire() as conn:
+    backup_pool = get_sensitive_pool()
+    async with backup_pool.acquire() as conn:
         rows = await conn.fetch(
             """
             SELECT id, asset_type, asset_id, asset_version, backup_kind, sequence, file_path, created_at
@@ -1497,13 +1509,13 @@ async def run_periodic_backup_once(pool: asyncpg.Pool) -> AssetBackupRunResult:
                 snapshot = await _fetch_model_card_snapshot(conn, asset_id)
                 if snapshot is not None:
                     total_assets += 1
-                    await record_backup(conn, "model_card", asset_id, int(snapshot["asset_version"]), "periodic", snapshot)
+                    await _record_backup("model_card", asset_id, int(snapshot["asset_version"]), "periodic", snapshot)
                     created_backups += 1
             for asset_id in await _latest_datasheet_ids(conn):
                 snapshot = await _fetch_datasheet_snapshot(conn, asset_id)
                 if snapshot is not None:
                     total_assets += 1
-                    await record_backup(conn, "datasheet", asset_id, int(snapshot["asset_version"]), "periodic", snapshot)
+                    await _record_backup("datasheet", asset_id, int(snapshot["asset_version"]), "periodic", snapshot)
                     created_backups += 1
     return AssetBackupRunResult(
         backup_kind="periodic",
