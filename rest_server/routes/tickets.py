@@ -2,7 +2,11 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 
 from rest_server.database import get_pool
-from rest_server.deps import get_request_actor, require_admin_actor
+from rest_server.deps import (
+    get_request_actor,
+    require_admin_actor,
+    require_authenticated_actor,
+)
 from rest_server.workflow_models import TicketCreate, TicketRecord, TicketUpdate
 
 router = APIRouter(tags=["tickets"])
@@ -66,12 +70,9 @@ async def list_tickets(
 @router.post("/tickets", response_model=TicketRecord, status_code=status.HTTP_201_CREATED)
 async def create_ticket(
     payload: TicketCreate,
-    request: Request,
+    actor=Depends(require_authenticated_actor),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
-    actor = get_request_actor(request)
-    submitted_by = actor.username or payload.submitted_by
-
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
@@ -88,7 +89,7 @@ async def create_ticket(
             payload.category,
             payload.priority,
             payload.description,
-            submitted_by,
+            actor.username,
         )
     return _row_to_ticket(row)
 

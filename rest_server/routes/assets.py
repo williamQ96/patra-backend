@@ -1377,10 +1377,10 @@ async def update_model_card_asset(
     principal: AssetIngestPrincipal = Depends(require_asset_ingest_principal),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
-    actor = get_request_actor(request)
+    actor_username = get_request_actor(request).username if principal.organization == "tapis" else None
     async with pool.acquire() as conn:
         async with conn.transaction():
-            return await _update_model_card_in_tx(conn, asset_id, asset, principal.organization, actor.username)
+            return await _update_model_card_in_tx(conn, asset_id, asset, principal.organization, actor_username)
 
 
 @router.patch("/datasheets/{asset_id}", response_model=AssetUpdateResult)
@@ -1391,10 +1391,10 @@ async def update_datasheet_asset(
     principal: AssetIngestPrincipal = Depends(require_asset_ingest_principal),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
-    actor = get_request_actor(request)
+    actor_username = get_request_actor(request).username if principal.organization == "tapis" else None
     async with pool.acquire() as conn:
         async with conn.transaction():
-            return await _update_datasheet_in_tx(conn, asset_id, asset, principal.organization, actor.username)
+            return await _update_datasheet_in_tx(conn, asset_id, asset, principal.organization, actor_username)
 
 
 @router.get("/backups/{asset_type}/{asset_id}", response_model=list[AssetBackupRecord])

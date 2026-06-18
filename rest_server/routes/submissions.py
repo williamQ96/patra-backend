@@ -4,7 +4,11 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 
 from rest_server.database import get_pool
-from rest_server.deps import get_request_actor, require_admin_actor
+from rest_server.deps import (
+    get_request_actor,
+    require_admin_actor,
+    require_authenticated_actor,
+)
 from rest_server.ingest_models import AssetDatasheetCreate, AssetModelCardCreate
 from rest_server.routes.assets import AssetRevisionContext, _create_datasheet_in_tx, _create_model_card_in_tx
 from rest_server.workflow_models import (
@@ -160,17 +164,14 @@ async def list_submissions(
 @router.post("/submissions", response_model=SubmissionRecord, status_code=status.HTTP_201_CREATED)
 async def create_submission(
     payload: SubmissionCreate,
-    request: Request,
+    actor=Depends(require_authenticated_actor),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
-    actor = get_request_actor(request)
-    submitted_by = actor.username or payload.submitted_by
-
     async with pool.acquire() as conn:
         row = await _insert_submission(
             conn,
             payload.type,
-            submitted_by,
+            actor.username,
             payload.title,
             payload.data,
             payload.asset_payload,
@@ -183,11 +184,9 @@ async def create_submission(
 @router.post("/submissions/bulk", response_model=SubmissionBulkCreateResult, status_code=status.HTTP_201_CREATED)
 async def create_bulk_submissions(
     payload: SubmissionBulkCreate,
-    request: Request,
+    actor=Depends(require_authenticated_actor),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
-    actor = get_request_actor(request)
-    submitted_by = actor.username or payload.submitted_by
     results: list[SubmissionBulkItemResult] = []
 
     async with pool.acquire() as conn:
@@ -196,7 +195,7 @@ async def create_bulk_submissions(
                 row = await _insert_submission(
                     conn,
                     payload.type,
-                    submitted_by,
+                    actor.username,
                     item.title,
                     item.data,
                     item.asset_payload,

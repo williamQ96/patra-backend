@@ -24,7 +24,13 @@ Stable backend should leave these off. Dev backend should enable them.
 ```json
 {
   "DATABASE_URL": "<patradb-url>",
-  "JWT_SECRET": "<secret>",
+  "TAPIS_AUTH_VALIDATION_ENABLED": "true",
+  "TAPIS_JWKS_URL": "<operator-provided-jwks-url>",
+  "TAPIS_ISSUER": "<operator-provided-issuer>",
+  "TAPIS_AUDIENCE": "<operator-provided-audience>",
+  "TAPIS_USERNAME_CLAIM": "tapis/username",
+  "TAPIS_TOKEN_LEEWAY_SECONDS": "60",
+  "ALLOW_UNVERIFIED_TAPIS_TOKEN_DEV_ONLY": "false",
   "ENABLE_ASK_PATRA": "false",
   "ENABLE_AUTOMATED_INGESTION": "false",
   "ENABLE_DOMAIN_EXPERIMENTS": "false"
@@ -38,7 +44,13 @@ Stable backend should leave these off. Dev backend should enable them.
   "DATABASE_URL": "<patradb-url>",
   "SENSITIVE_DATABASE_URL": "<patradev-db-url>",
   "ASSET_BACKUP_STORAGE": "database",
-  "JWT_SECRET": "<secret>",
+  "TAPIS_AUTH_VALIDATION_ENABLED": "true",
+  "TAPIS_JWKS_URL": "<operator-provided-jwks-url>",
+  "TAPIS_ISSUER": "<operator-provided-issuer>",
+  "TAPIS_AUDIENCE": "<operator-provided-audience>",
+  "TAPIS_USERNAME_CLAIM": "tapis/username",
+  "TAPIS_TOKEN_LEEWAY_SECONDS": "60",
+  "ALLOW_UNVERIFIED_TAPIS_TOKEN_DEV_ONLY": "false",
   "ENABLE_ASK_PATRA": "true",
   "ENABLE_AUTOMATED_INGESTION": "true",
   "ENABLE_DOMAIN_EXPERIMENTS": "true",
@@ -72,6 +84,27 @@ These support experimental workflows and should only be written by `patradev-bac
 - `digital_ag_power`
 
 Ask Patra currently stores conversation memory and prompt files on a mounted volume rather than in PostgreSQL.
+
+## Tapis authentication
+
+The backend prefers `Authorization: Bearer <token>` and supports
+`X-Tapis-Token` only for compatibility. It verifies signing keys through the
+configured JWKS endpoint and derives username/admin status server-side.
+`X-Patra-Username` and `X-Patra-Role` are ignored.
+
+Production deployments must obtain the exact JWKS URL, issuer, and audience
+from the Tapis tenant operator. Do not guess these values. Authentication fails
+closed when validation is enabled but JWKS verification cannot be performed.
+
+The unverified development mode requires both:
+
+```env
+TAPIS_AUTH_VALIDATION_ENABLED=false
+ALLOW_UNVERIFIED_TAPIS_TOKEN_DEV_ONLY=true
+```
+
+It still requires a structurally valid, time-valid JWT and must never be used
+for production or shared deployments.
 
 ## Database rules
 

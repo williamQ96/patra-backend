@@ -155,14 +155,18 @@ def test_create_model_card_asset_rejects_invalid_credentials(asset_client):
     assert response.status_code == 401
 
 
-def test_create_model_card_asset_accepts_tapis_token_without_asset_api_key(asset_client, monkeypatch):
+def test_create_model_card_asset_accepts_tapis_token_without_asset_api_key(
+    asset_client,
+    monkeypatch,
+    tapis_token_factory,
+):
     client, conn = asset_client
     monkeypatch.delenv("PATRA_ASSET_INGEST_KEYS_JSON", raising=False)
     get_asset_ingest_keys.cache_clear()
 
     response = client.post(
         "/v1/assets/model-cards",
-        headers={"X-Tapis-Token": "frontend-user-token"},
+        headers={"Authorization": f"Bearer {tapis_token_factory('frontend-user')}"},
         json={
             "name": "Frontend Submitted Model",
             "version": "1.0",

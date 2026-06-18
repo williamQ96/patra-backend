@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncpg
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 
 from rest_server.database import get_pool
 from rest_server.deps import get_request_actor
@@ -25,7 +25,6 @@ async def ask_patra_bootstrap():
 @router.post("/chat", response_model=AskPatraChatResponse)
 async def ask_patra_chat(
     payload: AskPatraChatRequest,
-    request: Request,
     actor=Depends(get_request_actor),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
@@ -36,7 +35,7 @@ async def ask_patra_chat(
             message=payload.message,
             conversation_id=payload.conversation_id,
             reset=payload.reset,
-            request_tapis_token=(request.headers.get("X-Tapis-Token") or "").strip() or None,
+            request_tapis_token=actor.token,
         )
     return AskPatraChatResponse(
         conversation_id=conversation_id,

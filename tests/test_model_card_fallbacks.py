@@ -11,6 +11,9 @@ class MissingModelConn:
         if "FROM model_cards" in query and "WHERE id = $1" in query:
             return {
                 "id": 1,
+                "asset_version": 1,
+                "previous_version_id": None,
+                "root_version_id": 1,
                 "name": "Segment Anything Model 3 (SAM 3)",
                 "version": "SAM3-ViT-L",
                 "short_description": "Foundation model for promptable concept segmentation.",

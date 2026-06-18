@@ -1,16 +1,24 @@
-import logging
 import hashlib
 import hmac
 import json
+import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
+from typing import Any, Mapping
 
 from fastapi import Header, HTTPException, Request
+
+from rest_server.tapis_auth import (
+    TapisAuthConfigurationError,
+    TapisTokenValidationError,
+    get_tapis_verifier,
+)
 
 log = logging.getLogger(__name__)
 
 TAPIS_TOKEN_HEADER = "X-Tapis-Token"
+AUTHORIZATION_HEADER = "Authorization"
 ASSET_INGEST_ORG_HEADER = "X-Asset-Org"
 ASSET_INGEST_KEY_HEADER = "X-Asset-Api-Key"
 ASSET_INGEST_KEYS_ENV = "PATRA_ASSET_INGEST_KEYS_JSON"
@@ -30,6 +38,9 @@ class PatraActor:
     username: str | None
     role: str = "guest"
     auth_type: str = "guest"
+    subject: str | None = None
+    claims: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False)
+    token: str | None = field(default=None, repr=False, compare=False)
 
     @property
     def is_authenticated(self) -> bool:
@@ -41,18 +52,8 @@ class PatraActor:
 
 
 def get_include_private(request: Request) -> bool:
-    """Return True when the caller presents a Tapis token via X-Tapis-Token.
-
-    The patra-toolkit authenticates against Tapis OAuth2 and passes the
-    resulting access token in the ``X-Tapis-Token`` header.  Presence of
-    any non-empty value is treated as authenticated (matching the legacy
-    Flask server behaviour).  No token falls back to public-only.
-    """
-    token = request.headers.get(TAPIS_TOKEN_HEADER)
-    if not token:
-        return False
-    log.debug("X-Tapis-Token present – including private records")
-    return True
+    """Return private records only for a server-validated Tapis identity."""
+    return get_request_actor(request).is_authenticated
 
 
 @lru_cache(maxsize=1)
@@ -63,24 +64,53 @@ def get_admin_users() -> set[str]:
 
 
 def get_request_actor(request: Request) -> PatraActor:
-    username = (request.headers.get(PATRA_USERNAME_HEADER) or "").strip()
-    token = (request.headers.get(TAPIS_TOKEN_HEADER) or "").strip()
-    requested_role = (request.headers.get(PATRA_ROLE_HEADER) or "").strip().lower()
+    cached_actor = getattr(request.state, "patra_actor", None)
+    if isinstance(cached_actor, PatraActor):
+        return cached_actor
+
+    token, credential_source = _extract_tapis_credential(request)
+    claimed_username = (request.headers.get(PATRA_USERNAME_HEADER) or "").strip()
+    claimed_role = (request.headers.get(PATRA_ROLE_HEADER) or "").strip()
 
     if not token:
-        return PatraActor(username=username or None)
+        if claimed_username or claimed_role:
+            log.warning("Ignoring client-supplied Patra identity headers without a validated token")
+        actor = PatraActor(username=None)
+        request.state.patra_actor = actor
+        return actor
 
-    normalized_username = username.lower() if username else None
-    is_admin = requested_role == "admin" or (normalized_username in get_admin_users() if normalized_username else False)
-    return PatraActor(
-        username=username or None,
-        role="admin" if is_admin else "user",
-        auth_type="tapis",
+    try:
+        identity = get_tapis_verifier().validate(token)
+    except TapisTokenValidationError as exc:
+        log.warning(
+            "Rejected Tapis credential from %s (%s)",
+            credential_source,
+            exc.code,
+        )
+        raise HTTPException(status_code=401, detail="Invalid Tapis access token") from exc
+    except TapisAuthConfigurationError as exc:
+        log.error("Tapis authentication is unavailable (%s)", exc.code)
+        raise HTTPException(status_code=503, detail="Tapis authentication is not configured") from exc
+
+    if claimed_username and claimed_username.lower() != identity.username.lower():
+        log.warning("Ignoring client identity header that does not match the validated Tapis token")
+    if claimed_role:
+        log.warning("Ignoring client role header; roles are derived server-side")
+
+    normalized_username = identity.username.lower()
+    actor = PatraActor(
+        username=identity.username,
+        role="admin" if normalized_username in get_admin_users() else "user",
+        auth_type="tapis" if identity.verified else "tapis_unverified_dev",
+        subject=identity.subject,
+        claims=identity.claims,
+        token=identity.token,
     )
+    request.state.patra_actor = actor
+    return actor
 
 
 def require_authenticated_actor(request: Request) -> PatraActor:
-    """Return the actor if authenticated, otherwise raise 401."""
     actor = get_request_actor(request)
     if not actor.is_authenticated:
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -88,7 +118,7 @@ def require_authenticated_actor(request: Request) -> PatraActor:
 
 
 def require_admin_actor(request: Request) -> PatraActor:
-    actor = get_request_actor(request)
+    actor = require_authenticated_actor(request)
     if not actor.is_admin:
         raise HTTPException(status_code=403, detail="Admin privileges required")
     return actor
@@ -113,6 +143,20 @@ def get_asset_ingest_keys() -> dict[str, str]:
     return normalized
 
 
+def _extract_tapis_credential(request: Request) -> tuple[str | None, str | None]:
+    authorization = (request.headers.get(AUTHORIZATION_HEADER) or "").strip()
+    if authorization:
+        scheme, separator, value = authorization.partition(" ")
+        if scheme.lower() != "bearer" or not separator or not value.strip():
+            raise HTTPException(status_code=401, detail="Authorization header must use Bearer authentication")
+        return value.strip(), "authorization"
+
+    compatibility_token = (request.headers.get(TAPIS_TOKEN_HEADER) or "").strip()
+    if compatibility_token:
+        return compatibility_token, "x-tapis-token"
+    return None, None
+
+
 def _extract_asset_api_key(authorization: str | None, x_asset_api_key: str | None) -> str | None:
     if x_asset_api_key:
         return x_asset_api_key.strip()
@@ -132,12 +176,15 @@ def _matches_configured_secret(presented: str, configured: str) -> bool:
 
 
 def require_asset_ingest_principal(
+    request: Request,
     x_asset_org: str | None = Header(default=None, alias=ASSET_INGEST_ORG_HEADER),
     x_asset_api_key: str | None = Header(default=None, alias=ASSET_INGEST_KEY_HEADER),
     x_tapis_token: str | None = Header(default=None, alias=TAPIS_TOKEN_HEADER),
     authorization: str | None = Header(default=None),
 ) -> AssetIngestPrincipal:
-    if (x_tapis_token or "").strip():
+    has_asset_api_key_context = bool((x_asset_org or "").strip() or (x_asset_api_key or "").strip())
+    if (x_tapis_token or "").strip() or ((authorization or "").strip() and not has_asset_api_key_context):
+        actor = require_authenticated_actor(request)
         return AssetIngestPrincipal(organization="tapis")
 
     try:

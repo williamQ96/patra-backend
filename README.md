@@ -69,6 +69,61 @@ The primary REST API is implemented with FastAPI and backed by PostgreSQL. It is
 
 The FastAPI app is exposed via the `rest_server` package (see `rest_server/main.py`) and is built into the Docker image `plalelab/patra-backend:latest` using `rest_server/Dockerfile` (see `scripts/build-push-backend.sh`).
 
+##### Tapis authentication
+
+Authenticated requests should use `Authorization: Bearer <token>`.
+`X-Tapis-Token` remains a compatibility fallback. The backend validates Tapis
+JWT signatures using `TAPIS_JWKS_URL`, checks time claims and optional
+issuer/audience constraints, and derives username and admin status from
+validated claims. Client-provided `X-Patra-Username` and `X-Patra-Role` headers
+are ignored.
+
+See [docs/DEPLOYMENT_TOPOLOGY.md](docs/DEPLOYMENT_TOPOLOGY.md) for the required
+runtime settings. Production authentication remains fail-closed until the
+Tapis operator supplies the authoritative tenant JWKS URL, issuer, and audience.
+
+###### Authentication logic and integration
+
+1. The API prefers `Authorization: Bearer <token>` and accepts
+   `X-Tapis-Token` only as a compatibility fallback.
+2. The server selects an allowed asymmetric JWT algorithm and obtains the
+   signing key from the configured JWKS endpoint.
+3. It verifies the signature and validates `exp`, `nbf`, and `iat`, plus issuer
+   and audience when configured. Near-expiry tokens are rejected.
+4. The authenticated username comes from `TAPIS_USERNAME_CLAIM`, defaulting to
+   `tapis/username`, with `sub` as the fallback.
+5. Admin status is derived from the backend admin username configuration.
+   Browser-supplied identity or role headers cannot override the token.
+6. Protected routes fail closed for missing, malformed, expired, wrongly
+   signed, or unverifiable credentials.
+
+Configure the active FastAPI deployment with operator-provided values:
+
+```env
+TAPIS_AUTH_VALIDATION_ENABLED=true
+TAPIS_JWKS_URL=https://<tenant-host>/<operator-provided-jwks-path>
+TAPIS_ISSUER=https://<operator-provided-issuer>
+TAPIS_AUDIENCE=<operator-provided-audience>
+TAPIS_USERNAME_CLAIM=tapis/username
+TAPIS_TOKEN_LEEWAY_SECONDS=60
+ALLOW_UNVERIFIED_TAPIS_TOKEN_DEV_ONLY=false
+```
+
+The development-only unverified mode requires both validation to be explicitly
+disabled and `ALLOW_UNVERIFIED_TAPIS_TOKEN_DEV_ONLY=true`. It must never be
+enabled in production. The actual tenant JWKS URL, issuer, and audience must be
+obtained from the Tapis operator; do not guess them or commit credentials.
+
+Example request:
+
+```bash
+curl -H "Authorization: Bearer <short-lived-tapis-token>" \
+  https://<patra-api-host>/modelcards
+```
+
+The embedded frontend integration and parent-portal message handler are
+documented in the frontend repository's `docs/login_redesign.md`.
+
 #### 2. Legacy REST Server (Flask + Neo4j)
 
 The legacy REST server is built using Flask and exposes a RESTful API for interaction with the Patra Knowledge Graph (KG) stored in Neo4j. It is retained in-repo for archive/reference purposes only and is not part of the active backend going forward.

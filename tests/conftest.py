@@ -7,12 +7,94 @@ IDs are integers (1–10) matching db/schema.dbml.
 """
 
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import json
 from unittest.mock import AsyncMock, MagicMock
 
+import jwt
 import pytest
+from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
+from jwt import PyJWK
+from jwt.exceptions import PyJWKClientError
+
+from rest_server.tapis_auth import clear_tapis_auth_caches
+
+TEST_TAPIS_ISSUER = "https://issuer.example.test"
+TEST_TAPIS_AUDIENCE = "patra-api"
+TEST_TAPIS_KEY_ID = "patra-test-key"
+TEST_TAPIS_PRIVATE_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+TEST_TAPIS_PUBLIC_JWK = json.loads(
+    jwt.algorithms.RSAAlgorithm.to_jwk(TEST_TAPIS_PRIVATE_KEY.public_key())
+)
+TEST_TAPIS_PUBLIC_JWK.update(
+    {
+        "kid": TEST_TAPIS_KEY_ID,
+        "alg": "RS256",
+        "use": "sig",
+    }
+)
+
+
+class StaticTestJwksClient:
+    def get_signing_key_from_jwt(self, token: str):
+        header = jwt.get_unverified_header(token)
+        if header.get("kid") != TEST_TAPIS_KEY_ID:
+            raise PyJWKClientError("No matching test key")
+        return PyJWK.from_dict(TEST_TAPIS_PUBLIC_JWK)
+
+
+def make_test_tapis_token(
+    username: str = "alice",
+    *,
+    expires_in_seconds: int = 600,
+    issuer: str = TEST_TAPIS_ISSUER,
+    audience: str | list[str] = TEST_TAPIS_AUDIENCE,
+    extra_claims: dict | None = None,
+    private_key=TEST_TAPIS_PRIVATE_KEY,
+    key_id: str = TEST_TAPIS_KEY_ID,
+) -> str:
+    now = datetime.now(timezone.utc)
+    claims = {
+        "sub": f"{username}@tacc",
+        "tapis/username": username,
+        "iss": issuer,
+        "aud": audience,
+        "iat": now,
+        "nbf": now - timedelta(seconds=1),
+        "exp": now + timedelta(seconds=expires_in_seconds),
+    }
+    claims.update(extra_claims or {})
+    return jwt.encode(
+        claims,
+        private_key,
+        algorithm="RS256",
+        headers={"kid": key_id},
+    )
+
+
+@pytest.fixture(autouse=True)
+def tapis_auth_test_config(monkeypatch):
+    monkeypatch.setenv("TAPIS_AUTH_VALIDATION_ENABLED", "true")
+    monkeypatch.setenv("TAPIS_JWKS_URL", "https://jwks.example.test/keys")
+    monkeypatch.setenv("TAPIS_ISSUER", TEST_TAPIS_ISSUER)
+    monkeypatch.setenv("TAPIS_AUDIENCE", TEST_TAPIS_AUDIENCE)
+    monkeypatch.setenv("TAPIS_USERNAME_CLAIM", "tapis/username")
+    monkeypatch.setenv("TAPIS_TOKEN_LEEWAY_SECONDS", "1")
+    monkeypatch.delenv("ALLOW_UNVERIFIED_TAPIS_TOKEN_DEV_ONLY", raising=False)
+    monkeypatch.setattr(
+        "rest_server.tapis_auth.PyJWKClient",
+        lambda *args, **kwargs: StaticTestJwksClient(),
+    )
+    clear_tapis_auth_caches()
+    yield
+    clear_tapis_auth_caches()
+
+
+@pytest.fixture()
+def tapis_token_factory():
+    return make_test_tapis_token
 
 # ── Fake row data (integer IDs per schema) ─────────────────────────────────────
 
@@ -31,6 +113,9 @@ def _mc_row(mc_id: int, private: bool) -> dict:
         "short_description": f"Description for {mc_id}",
         "is_private": private,
         "is_gated": False,
+        "asset_version": 1,
+        "previous_version_id": None,
+        "root_version_id": mc_id,
     }
 
 
@@ -113,6 +198,9 @@ def _ds_row(ident: int, private: bool) -> dict:
         "version": "1.0",
         "is_private": private,
         "dataset_schema_id": None,
+        "asset_version": 1,
+        "previous_version_id": None,
+        "root_version_id": ident,
         # First title / creator / subject used in summary endpoint
         "summary_title": f"Dataset {ident}",
         "summary_creator": "tester",
@@ -261,6 +349,9 @@ def _make_mock_pool():
                     "title": r["summary_title"],
                     "creator": r["summary_creator"],
                     "category": r["summary_category"],
+                    "asset_version": r["asset_version"],
+                    "previous_version_id": r["previous_version_id"],
+                    "root_version_id": r["root_version_id"],
                 }
                 for r in sliced
             ]
@@ -387,5 +478,5 @@ def client():
 
 @pytest.fixture()
 def tapis_headers() -> dict:
-    """Headers with a valid X-Tapis-Token (any non-empty value suffices)."""
-    return {"X-Tapis-Token": "fake-tapis-access-token-for-testing"}
+    """Headers with a locally signed, server-verifiable Tapis JWT."""
+    return {"Authorization": f"Bearer {make_test_tapis_token()}"}

@@ -176,13 +176,15 @@ def workflow_client(monkeypatch):
     get_admin_users.cache_clear()
 
 
-def test_create_and_review_submission_queue_item(workflow_client):
+def test_create_and_review_submission_queue_item(workflow_client, tapis_token_factory):
     client, conn = workflow_client
+    alice_token = tapis_token_factory("alice")
+    admin_token = tapis_token_factory("williamq96")
 
     create_response = client.post(
         "/submissions",
         headers={
-            "X-Tapis-Token": "token",
+            "Authorization": f"Bearer {alice_token}",
             "X-Patra-Username": "alice",
         },
         json={
@@ -210,7 +212,7 @@ def test_create_and_review_submission_queue_item(workflow_client):
     list_response = client.get(
         "/submissions",
         headers={
-            "X-Tapis-Token": "token",
+            "Authorization": f"Bearer {alice_token}",
             "X-Patra-Username": "alice",
         },
     )
@@ -220,7 +222,7 @@ def test_create_and_review_submission_queue_item(workflow_client):
     review_response = client.put(
         f"/submissions/{created['id']}",
         headers={
-            "X-Tapis-Token": "admin-token",
+            "Authorization": f"Bearer {admin_token}",
             "X-Patra-Username": "williamq96",
         },
         json={
@@ -237,12 +239,33 @@ def test_create_and_review_submission_queue_item(workflow_client):
     assert conn.asset_id_seq > 500
 
 
-def test_bulk_submission_queue_creation(workflow_client):
+def test_submission_creation_requires_validated_identity(workflow_client):
     client, _ = workflow_client
+    response = client.post(
+        "/submissions",
+        json={
+            "type": "model_card",
+            "submitted_by": "impersonated-user",
+            "title": "Untrusted submission",
+            "data": {},
+            "asset_payload": {
+                "name": "Untrusted submission",
+                "version": "1.0",
+                "short_description": "Should not be accepted",
+                "author": "impersonated-user",
+            },
+        },
+    )
+    assert response.status_code == 401
+
+
+def test_bulk_submission_queue_creation(workflow_client, tapis_token_factory):
+    client, _ = workflow_client
+    alice_token = tapis_token_factory("alice")
     response = client.post(
         "/submissions/bulk",
         headers={
-            "X-Tapis-Token": "token",
+            "Authorization": f"Bearer {alice_token}",
             "X-Patra-Username": "alice",
         },
         json={
@@ -282,12 +305,14 @@ def test_bulk_submission_queue_creation(workflow_client):
     assert all(item["submission_id"] for item in data["results"])
 
 
-def test_ticket_create_and_admin_update(workflow_client):
+def test_ticket_create_and_admin_update(workflow_client, tapis_token_factory):
     client, _ = workflow_client
+    alice_token = tapis_token_factory("alice")
+    admin_token = tapis_token_factory("williamq96")
     create_response = client.post(
         "/tickets",
         headers={
-            "X-Tapis-Token": "token",
+            "Authorization": f"Bearer {alice_token}",
             "X-Patra-Username": "alice",
         },
         json={
@@ -307,7 +332,7 @@ def test_ticket_create_and_admin_update(workflow_client):
     update_response = client.put(
         f"/tickets/{ticket['id']}",
         headers={
-            "X-Tapis-Token": "admin-token",
+            "Authorization": f"Bearer {admin_token}",
             "X-Patra-Username": "williamq96",
         },
         json={
