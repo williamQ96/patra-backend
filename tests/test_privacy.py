@@ -6,6 +6,7 @@ IDs are integers (1–10) per db/schema.dbml.
 """
 
 from rest_server.errors import ASSET_NOT_AVAILABLE_DETAIL
+from rest_server.tapis_auth import clear_tapis_auth_caches
 from tests.conftest import (
     ALL_MC_IDS,
     PRIVATE_DS_IDENTIFIERS,
@@ -141,6 +142,28 @@ class TestEdgeCases:
 
     def test_empty_tapis_token_returns_only_public(self, client):
         resp = client.get("/modelcards", headers={"X-Tapis-Token": ""})
+        assert resp.status_code == 200
+        assert len(resp.json()) == 5
+
+    def test_invalid_token_on_public_catalog_falls_back_to_public(self, client):
+        resp = client.get(
+            "/modelcards",
+            headers={"Authorization": "Bearer malformed-catalog-token"},
+        )
+        assert resp.status_code == 200
+        assert len(resp.json()) == 5
+
+    def test_missing_jwks_on_public_catalog_falls_back_to_public(
+        self,
+        client,
+        tapis_headers,
+        monkeypatch,
+    ):
+        monkeypatch.setenv("TAPIS_JWKS_URL", "")
+        clear_tapis_auth_caches()
+
+        resp = client.get("/datasheets", headers=tapis_headers)
+
         assert resp.status_code == 200
         assert len(resp.json()) == 5
 

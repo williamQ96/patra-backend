@@ -52,8 +52,24 @@ class PatraActor:
 
 
 def get_include_private(request: Request) -> bool:
-    """Return private records only for a server-validated Tapis identity."""
-    return get_request_actor(request).is_authenticated
+    """Return private records only for a server-validated Tapis identity.
+
+    Model-card and datasheet reads are public endpoints. A stale browser token
+    or temporarily unavailable JWKS endpoint must not make public catalog data
+    disappear. Treat authentication failures as a guest for these reads while
+    protected/write routes continue to use ``require_authenticated_actor`` and
+    fail closed.
+    """
+    try:
+        return get_request_actor(request).is_authenticated
+    except HTTPException as exc:
+        if exc.status_code not in {401, 503}:
+            raise
+        log.warning(
+            "Falling back to public catalog visibility after Tapis authentication could not be established"
+        )
+        request.state.patra_actor = PatraActor(username=None)
+        return False
 
 
 @lru_cache(maxsize=1)

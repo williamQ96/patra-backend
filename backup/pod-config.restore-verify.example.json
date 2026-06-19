@@ -1,0 +1,28 @@
+{
+  "pod_id": "patradbrestoreverify",
+  "image": "plalelab/patra-db-backup:<same-immutable-release-tag>",
+  "template": "",
+  "description": "One-shot restore verification against an isolated PostgreSQL server",
+  "command": [
+    "/usr/local/bin/verify-latest-restore.sh"
+  ],
+  "environment_variables": {
+    "DATABASE_URL": "<production-patradb-read-only-backup-user-url>",
+    "RESTORE_ADMIN_URL": "<isolated-restore-postgres-admin-url>",
+    "BACKUP_DIR": "/backups",
+    "BACKUP_PREFIX": "patradb-prod"
+  },
+  "secret_map": {},
+  "volume_mounts": {
+    "/backups": {
+      "type": "tapisvolume",
+      "source_id": "patradbbackups",
+      "sub_path": "",
+      "read_only": false,
+      "config_permissions": "0700",
+      "config_update_mode": "always"
+    }
+  },
+  "status_requested": "OFF",
+  "time_to_stop_default": 3600
+}

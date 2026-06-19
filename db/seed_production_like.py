@@ -1,4 +1,4 @@
-"""Seed the live Patra database with production-like data.
+"""Seed an isolated disposable development database with production-like data.
 
 Matches db/schema.dbml: monotonically increasing integer IDs, audit timestamps,
 optional datasheet.model_card_id. No deployments table.
@@ -6,22 +6,59 @@ optional datasheet.model_card_id. No deployments table.
 Truncates tables (RESTART IDENTITY) and inserts 10 model cards (5 public, 5 private),
 10 models, and 10 datasheets (5 public, 5 private; 2 without model_card_id).
 
+The script permanently refuses the production Patra database and requires
+explicit development-only confirmation variables before connecting.
+
 Usage:
-    DATABASE_URL="postgresql://…" python3 db/seed_production_like.py
+    DATABASE_URL="postgresql://.../patra_disposable" \
+    SEED_EXPECTED_DATABASE="patra_disposable" \
+    ALLOW_DESTRUCTIVE_SEED_DEV_ONLY=true \
+    python3 db/seed_production_like.py
 """
 
 import asyncio
 import os
 import ssl
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import asyncpg
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://patradb:zBQDRU23BVwoXh8zGh77eumDWOVR7c"
-    "@patradb.pods.icicleai.tapis.io:443/patradb?sslmode=require",
+DATABASE_URL = os.getenv("DATABASE_URL")
+ALLOW_DESTRUCTIVE_SEED_DEV_ONLY = (
+    os.getenv("ALLOW_DESTRUCTIVE_SEED_DEV_ONLY", "").strip().lower() == "true"
 )
+SEED_EXPECTED_DATABASE = os.getenv("SEED_EXPECTED_DATABASE", "").strip()
+
+
+def _validate_seed_target(
+    database_url: str | None,
+    allow_destructive_seed: bool,
+    expected_database: str,
+) -> str:
+    if not database_url:
+        raise RuntimeError("DATABASE_URL is required; no database default is permitted")
+    if not allow_destructive_seed:
+        raise RuntimeError(
+            "Refusing destructive seed. Set ALLOW_DESTRUCTIVE_SEED_DEV_ONLY=true "
+            "only for an isolated disposable development database."
+        )
+    if not expected_database:
+        raise RuntimeError(
+            "SEED_EXPECTED_DATABASE is required and must identify the disposable target database"
+        )
+
+    parsed = urlparse(database_url)
+    configured_database = parsed.path.lstrip("/").split("/", 1)[0]
+    configured_host = (parsed.hostname or "").lower()
+    if configured_database == "patradb" or configured_host == "patradb.pods.icicleai.tapis.io":
+        raise RuntimeError("This seed script permanently refuses the Patra production database")
+    if configured_database != expected_database:
+        raise RuntimeError(
+            "DATABASE_URL database does not match SEED_EXPECTED_DATABASE"
+        )
+    return configured_database
+
 
 # Single timestamp for all audit columns in this seed run
 _NOW = datetime.now(timezone.utc)
@@ -215,13 +252,23 @@ NUM_EDGE_DEVICES = 3
 
 
 async def seed():
+    _validate_seed_target(
+        DATABASE_URL,
+        ALLOW_DESTRUCTIVE_SEED_DEV_ONLY,
+        SEED_EXPECTED_DATABASE,
+    )
+
     dsn = DATABASE_URL.replace(":5432", ":443").split("?")[0]
     ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
 
     conn = await asyncpg.connect(dsn, ssl=ctx, timeout=30)
-    print("Connected.")
+    actual_database = await conn.fetchval("SELECT current_database()")
+    if actual_database != SEED_EXPECTED_DATABASE:
+        await conn.close()
+        raise RuntimeError(
+            "Connected database does not match SEED_EXPECTED_DATABASE"
+        )
+    print(f"Connected to disposable database {actual_database}.")
 
     async with conn.transaction():
         truncate_tables = [

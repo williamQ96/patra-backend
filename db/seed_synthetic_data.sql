@@ -6,9 +6,18 @@
 --   digital_ag_events: 8, digital_ag_power: 2
 --
 -- Usage:
---   psql -d patra -f db/seed_synthetic_data.sql
+--   psql -d disposable_development_database -f db/seed_synthetic_data.sql
 
 BEGIN;
+
+DO $$
+BEGIN
+  IF current_database() = 'patradb' THEN
+    RAISE EXCEPTION
+      'Refusing destructive synthetic seed on production database patradb';
+  END IF;
+END
+$$;
 
 TRUNCATE TABLE
   digital_ag_power,

@@ -7,6 +7,15 @@
 
 BEGIN;
 
+DO $$
+BEGIN
+  IF current_database() = 'patradb' THEN
+    RAISE EXCEPTION
+      'Refusing destructive integer-ID migration on production database patradb';
+  END IF;
+END
+$$;
+
 DROP TABLE IF EXISTS experiment_images CASCADE;
 DROP TABLE IF EXISTS experiments CASCADE;
 DROP TABLE IF EXISTS raw_images CASCADE;

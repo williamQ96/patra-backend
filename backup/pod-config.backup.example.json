@@ -1,0 +1,26 @@
+{
+  "pod_id": "patradbbackup",
+  "image": "plalelab/patra-db-backup:<immutable-release-tag>",
+  "template": "",
+  "description": "Hourly read-only logical backups of Patra production PostgreSQL",
+  "environment_variables": {
+    "DATABASE_URL": "<production-patradb-read-only-backup-user-url>",
+    "BACKUP_DIR": "/backups",
+    "BACKUP_INTERVAL_SECONDS": "3600",
+    "BACKUP_RETENTION_DAYS": "14",
+    "BACKUP_PREFIX": "patradb-prod"
+  },
+  "secret_map": {},
+  "volume_mounts": {
+    "/backups": {
+      "type": "tapisvolume",
+      "source_id": "patradbbackups",
+      "sub_path": "",
+      "read_only": false,
+      "config_permissions": "0700",
+      "config_update_mode": "always"
+    }
+  },
+  "status_requested": "ON",
+  "time_to_stop_default": -1
+}

@@ -124,6 +124,22 @@ curl -H "Authorization: Bearer <short-lived-tapis-token>" \
 The embedded frontend integration and parent-portal message handler are
 documented in the frontend repository's `docs/login_redesign.md`.
 
+Public model-card and datasheet reads degrade to anonymous public visibility
+when a stale token cannot be validated or the JWKS service is temporarily
+unavailable. Protected and write routes still fail closed and require a
+server-validated identity.
+
+Animal Ecology and Digital Agriculture deployments historically stored domain
+records in the shared `events` and `power_summary` tables. The active domain
+API prefers populated domain-specific tables and otherwise reads the intact
+legacy rows using an exact `domain` filter. This compatibility path is
+read-only and does not migrate, copy, delete, or reseed production records.
+
+Production database backup, isolated restore verification, retention, and
+recovery procedures are documented in
+[docs/PRODUCTION_BACKUP.md](docs/PRODUCTION_BACKUP.md). A verified restore is a
+mandatory gate before changing the production deployment.
+
 #### 2. Legacy REST Server (Flask + Neo4j)
 
 The legacy REST server is built using Flask and exposes a RESTful API for interaction with the Patra Knowledge Graph (KG) stored in Neo4j. It is retained in-repo for archive/reference purposes only and is not part of the active backend going forward.

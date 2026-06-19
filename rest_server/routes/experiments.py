@@ -26,12 +26,45 @@ DOMAIN_TABLES = {
     },
 }
 
+LEGACY_TABLES = {
+    "events": "events",
+    "power": "power_summary",
+}
+
 
 def _resolve_tables(domain: str) -> tuple[str, str]:
     tables = DOMAIN_TABLES.get(domain)
     if not tables:
         raise HTTPException(status_code=404, detail=f"Unknown domain: {domain}")
     return tables["events"], tables["power"]
+
+
+async def _resolve_source(conn, domain: str, source_type: str) -> tuple[str, str | None]:
+    """Prefer a populated domain table, otherwise read the legacy domain table.
+
+    Production historically stored all experiment domains in ``events`` and
+    ``power_summary`` with a ``domain`` discriminator. Newer schemas split
+    those records into domain-specific tables. During migration, an empty split
+    table must not hide the intact legacy rows.
+    """
+    events_table, power_table = _resolve_tables(domain)
+    configured_table = events_table if source_type == "events" else power_table
+    has_domain_rows = await conn.fetchval(
+        f"SELECT EXISTS (SELECT 1 FROM {configured_table} LIMIT 1)"
+    )
+    if has_domain_rows:
+        return configured_table, None
+    return LEGACY_TABLES[source_type], domain
+
+
+def _add_domain_filter(
+    filters: list[str],
+    params: list[object],
+    source_domain: str | None,
+) -> None:
+    if source_domain is not None:
+        params.append(source_domain)
+        filters.append(f"domain = ${len(params)}")
 
 
 def _float(value):
@@ -43,14 +76,19 @@ async def list_experiment_users(
     domain: str = Path(...),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
-    events_table, _ = _resolve_tables(domain)
-    query = f"""
-        SELECT DISTINCT user_id, user_id AS username
-        FROM {events_table}
-        ORDER BY user_id
-    """
     async with pool.acquire() as conn:
-        rows = await conn.fetch(query)
+        events_table, source_domain = await _resolve_source(conn, domain, "events")
+        filters: list[str] = []
+        params: list[object] = []
+        _add_domain_filter(filters, params, source_domain)
+        where = f"WHERE {' AND '.join(filters)}" if filters else ""
+        query = f"""
+            SELECT DISTINCT user_id, user_id AS username
+            FROM {events_table}
+            {where}
+            ORDER BY user_id
+        """
+        rows = await conn.fetch(query, *params)
     return [ExperimentUser(user_id=row["user_id"], username=row["username"]) for row in rows]
 
 
@@ -60,26 +98,31 @@ async def get_user_experiment_summary(
     user_id: str = Path(...),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
-    events_table, _ = _resolve_tables(domain)
-    query = f"""
-        SELECT
-            experiment_id,
-            user_id,
-            model_id,
-            device_id,
-            MIN(image_receiving_timestamp) AS start_at,
-            MAX(total_images) AS total_images,
-            SUM(CASE WHEN image_decision = 'Save' THEN 1 ELSE 0 END) AS saved_images,
-            MAX(precision) AS precision,
-            MAX(recall) AS recall,
-            MAX(f1_score) AS f1_score
-        FROM {events_table}
-        WHERE user_id = $1
-        GROUP BY experiment_id, user_id, model_id, device_id
-        ORDER BY MIN(image_receiving_timestamp) DESC
-    """
     async with pool.acquire() as conn:
-        rows = await conn.fetch(query, user_id)
+        events_table, source_domain = await _resolve_source(conn, domain, "events")
+        filters: list[str] = []
+        params: list[object] = []
+        _add_domain_filter(filters, params, source_domain)
+        params.append(user_id)
+        filters.append(f"user_id = ${len(params)}")
+        query = f"""
+            SELECT
+                experiment_id,
+                user_id,
+                model_id,
+                device_id,
+                MIN(image_receiving_timestamp) AS start_at,
+                MAX(total_images) AS total_images,
+                SUM(CASE WHEN image_decision = 'Save' THEN 1 ELSE 0 END) AS saved_images,
+                MAX(precision) AS precision,
+                MAX(recall) AS recall,
+                MAX(f1_score) AS f1_score
+            FROM {events_table}
+            WHERE {' AND '.join(filters)}
+            GROUP BY experiment_id, user_id, model_id, device_id
+            ORDER BY MIN(image_receiving_timestamp) DESC
+        """
+        rows = await conn.fetch(query, *params)
 
     return [
         ExperimentSummary(
@@ -104,20 +147,25 @@ async def list_user_experiments(
     user_id: str = Path(...),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
-    events_table, _ = _resolve_tables(domain)
-    query = f"""
-        SELECT DISTINCT
-            experiment_id,
-            MIN(image_receiving_timestamp) AS start_at,
-            device_id,
-            model_id
-        FROM {events_table}
-        WHERE user_id = $1
-        GROUP BY experiment_id, device_id, model_id
-        ORDER BY MIN(image_receiving_timestamp) DESC
-    """
     async with pool.acquire() as conn:
-        rows = await conn.fetch(query, user_id)
+        events_table, source_domain = await _resolve_source(conn, domain, "events")
+        filters: list[str] = []
+        params: list[object] = []
+        _add_domain_filter(filters, params, source_domain)
+        params.append(user_id)
+        filters.append(f"user_id = ${len(params)}")
+        query = f"""
+            SELECT DISTINCT
+                experiment_id,
+                MIN(image_receiving_timestamp) AS start_at,
+                device_id,
+                model_id
+            FROM {events_table}
+            WHERE {' AND '.join(filters)}
+            GROUP BY experiment_id, device_id, model_id
+            ORDER BY MIN(image_receiving_timestamp) DESC
+        """
+        rows = await conn.fetch(query, *params)
 
     return [
         ExperimentListItem(
@@ -136,16 +184,21 @@ async def get_experiment_detail(
     experiment_id: str = Path(...),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
-    events_table, _ = _resolve_tables(domain)
-    query = f"""
-        SELECT *
-        FROM {events_table}
-        WHERE experiment_id = $1
-        ORDER BY image_count DESC
-        LIMIT 1
-    """
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(query, experiment_id)
+        events_table, source_domain = await _resolve_source(conn, domain, "events")
+        filters: list[str] = []
+        params: list[object] = []
+        _add_domain_filter(filters, params, source_domain)
+        params.append(experiment_id)
+        filters.append(f"experiment_id = ${len(params)}")
+        query = f"""
+            SELECT *
+            FROM {events_table}
+            WHERE {' AND '.join(filters)}
+            ORDER BY image_count DESC
+            LIMIT 1
+        """
+        row = await conn.fetchrow(query, *params)
     if not row:
         raise HTTPException(status_code=404, detail="Experiment not found")
 
@@ -177,19 +230,25 @@ async def get_experiment_images(
     limit: int = Query(100, ge=1, le=500),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
-    events_table, _ = _resolve_tables(domain)
-    query = f"""
-        SELECT
-            image_name, ground_truth, label, probability,
-            image_decision, flattened_scores,
-            image_receiving_timestamp, image_scoring_timestamp
-        FROM {events_table}
-        WHERE experiment_id = $1
-        ORDER BY image_receiving_timestamp ASC
-        LIMIT $2 OFFSET $3
-    """
     async with pool.acquire() as conn:
-        rows = await conn.fetch(query, experiment_id, limit, skip)
+        events_table, source_domain = await _resolve_source(conn, domain, "events")
+        filters: list[str] = []
+        params: list[object] = []
+        _add_domain_filter(filters, params, source_domain)
+        params.append(experiment_id)
+        filters.append(f"experiment_id = ${len(params)}")
+        params.extend([limit, skip])
+        query = f"""
+            SELECT
+                image_name, ground_truth, label, probability,
+                image_decision, flattened_scores,
+                image_receiving_timestamp, image_scoring_timestamp
+            FROM {events_table}
+            WHERE {' AND '.join(filters)}
+            ORDER BY image_receiving_timestamp ASC
+            LIMIT ${len(params) - 1} OFFSET ${len(params)}
+        """
+        rows = await conn.fetch(query, *params)
 
     return [
         ExperimentImage(
@@ -212,10 +271,15 @@ async def get_experiment_power(
     experiment_id: str = Path(...),
     pool: asyncpg.Pool = Depends(get_pool),
 ):
-    _, power_table = _resolve_tables(domain)
-    query = f"SELECT * FROM {power_table} WHERE experiment_id = $1"
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(query, experiment_id)
+        power_table, source_domain = await _resolve_source(conn, domain, "power")
+        filters: list[str] = []
+        params: list[object] = []
+        _add_domain_filter(filters, params, source_domain)
+        params.append(experiment_id)
+        filters.append(f"experiment_id = ${len(params)}")
+        query = f"SELECT * FROM {power_table} WHERE {' AND '.join(filters)}"
+        row = await conn.fetchrow(query, *params)
     if not row:
         return None
 
