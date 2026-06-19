@@ -1,6 +1,6 @@
 {
   "pod_id": "patradbrestoreverify",
-  "image": "plalelab/patra-db-backup:<same-immutable-release-tag>",
+  "image": "plalelab/patra-backend:<same-immutable-db-backup-release-tag>",
   "template": "",
   "description": "One-shot restore verification against an isolated PostgreSQL server",
   "command": [

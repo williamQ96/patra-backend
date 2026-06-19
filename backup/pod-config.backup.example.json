@@ -1,6 +1,6 @@
 {
   "pod_id": "patradbbackup",
-  "image": "plalelab/patra-db-backup:<immutable-release-tag>",
+  "image": "plalelab/patra-backend:<immutable-db-backup-release-tag>",
   "template": "",
   "description": "Hourly read-only logical backups of Patra production PostgreSQL",
   "environment_variables": {

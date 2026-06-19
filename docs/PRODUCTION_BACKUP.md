@@ -24,9 +24,9 @@ or restore-verification database as its `DATABASE_URL`.
 ```bash
 docker build \
   -f backup/Dockerfile \
-  -t plalelab/patra-db-backup:<immutable-release-tag> \
+  -t plalelab/patra-backend:<immutable-db-backup-release-tag> \
   .
-docker push plalelab/patra-db-backup:<immutable-release-tag>
+docker push plalelab/patra-backend:<immutable-db-backup-release-tag>
 ```
 
 Never deploy the mutable `latest` tag for backup infrastructure.
