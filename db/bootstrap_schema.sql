@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS model_cards (
   created_at timestamptz NOT NULL,
   updated_at timestamptz NOT NULL
 );
+ALTER TABLE model_cards ADD COLUMN IF NOT EXISTS status approval_status NOT NULL DEFAULT 'approved';
+ALTER TABLE model_cards ALTER COLUMN status SET DEFAULT 'pending';
 ALTER TABLE model_cards ADD COLUMN IF NOT EXISTS asset_version integer NOT NULL DEFAULT 1;
 ALTER TABLE model_cards ADD COLUMN IF NOT EXISTS previous_version_id bigint REFERENCES model_cards(id);
 ALTER TABLE model_cards ADD COLUMN IF NOT EXISTS root_version_id bigint REFERENCES model_cards(id);
@@ -79,6 +81,8 @@ CREATE TABLE IF NOT EXISTS datasheets (
   dataset_schema_id bigint REFERENCES dataset_schemas(id),
   publisher_id bigint REFERENCES publishers(id)
 );
+ALTER TABLE datasheets ADD COLUMN IF NOT EXISTS dataset_schema_id bigint REFERENCES dataset_schemas(id);
+ALTER TABLE datasheets ADD COLUMN IF NOT EXISTS publisher_id bigint REFERENCES publishers(id);
 ALTER TABLE datasheets ADD COLUMN IF NOT EXISTS asset_version integer NOT NULL DEFAULT 1;
 ALTER TABLE datasheets ADD COLUMN IF NOT EXISTS previous_version_id bigint REFERENCES datasheets(identifier);
 ALTER TABLE datasheets ADD COLUMN IF NOT EXISTS root_version_id bigint REFERENCES datasheets(identifier);
