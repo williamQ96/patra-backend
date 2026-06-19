@@ -97,22 +97,29 @@ Tapis operator supplies the authoritative tenant JWKS URL, issuer, and audience.
 6. Protected routes fail closed for missing, malformed, expired, wrongly
    signed, or unverifiable credentials.
 
-Configure the active FastAPI deployment with operator-provided values:
+Configure the ICICLE FastAPI deployment with:
 
 ```env
 TAPIS_AUTH_VALIDATION_ENABLED=true
-TAPIS_JWKS_URL=https://<tenant-host>/<operator-provided-jwks-path>
-TAPIS_ISSUER=https://<operator-provided-issuer>
-TAPIS_AUDIENCE=<operator-provided-audience>
+TAPIS_JWKS_URL=https://icicleai.tapis.io/v3/oauth2/jwks
+TAPIS_ISSUER=https://icicleai.tapis.io/v3/tokens
+TAPIS_AUDIENCE=
 TAPIS_USERNAME_CLAIM=tapis/username
 TAPIS_TOKEN_LEEWAY_SECONDS=60
 ALLOW_UNVERIFIED_TAPIS_TOKEN_DEV_ONLY=false
+DB_BOOTSTRAP_SCHEMA_ENABLED=false
 ```
 
 The development-only unverified mode requires both validation to be explicitly
 disabled and `ALLOW_UNVERIFIED_TAPIS_TOKEN_DEV_ONLY=true`. It must never be
-enabled in production. The actual tenant JWKS URL, issuer, and audience must be
-obtained from the Tapis operator; do not guess them or commit credentials.
+enabled in production. The ICICLE tenant currently publishes an RS256 key at
+the JWKS URL above, uses the listed issuer, and issues access tokens without an
+audience claim. Reconfirm those values with the tenant operator if its token
+configuration changes.
+
+Production sets `DB_BOOTSTRAP_SCHEMA_ENABLED=false` so an application pod
+restart cannot make incidental schema changes. Run reviewed schema changes as
+a separate operation only after a verified backup.
 
 Example request:
 

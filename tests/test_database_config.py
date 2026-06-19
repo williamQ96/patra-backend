@@ -89,6 +89,30 @@ async def test_init_sensitive_pool_uses_separate_database_url(monkeypatch):
     database._sensitive_pool = None
 
 
+@pytest.mark.asyncio
+async def test_schema_bootstrap_can_be_disabled_for_production(monkeypatch):
+    fake_pool = object()
+    schema_calls = []
+
+    async def fake_create_pool(*args, **kwargs):
+        return fake_pool
+
+    async def fake_ensure_schema(pool):
+        schema_calls.append(pool)
+
+    monkeypatch.setenv("DB_BOOTSTRAP_SCHEMA_ENABLED", "false")
+    monkeypatch.setattr(database.asyncpg, "create_pool", fake_create_pool)
+    monkeypatch.setattr(database, "ensure_schema", fake_ensure_schema)
+
+    pool = await database._create_pool_from_url(
+        "postgresql://user:pass@localhost:5432/patradb",
+        label="Production",
+    )
+
+    assert pool is fake_pool
+    assert schema_calls == []
+
+
 def test_get_sensitive_pool_falls_back_to_primary(monkeypatch):
     fake_pool = object()
     database._pool = fake_pool

@@ -22,6 +22,13 @@ _TAPIS_PODS_SUFFIX = ".pods.icicleai.tapis.io"
 _TAPIS_PG_PORT = 443
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None or value == "":
+        return default
+    return value.strip().lower() == "true"
+
+
 def _build_connection_options(raw_url: str) -> tuple[str, ssl.SSLContext | bool, bool]:
     """Normalise asyncpg connection options for the active PostgreSQL backend.
 
@@ -70,7 +77,10 @@ async def _create_pool_from_url(url: str, *, label: str) -> asyncpg.Pool:
                 command_timeout=60,
                 timeout=30,
             )
-            await ensure_schema(pool)
+            if _env_flag("DB_BOOTSTRAP_SCHEMA_ENABLED", default=True):
+                await ensure_schema(pool)
+            else:
+                log.info("%s database schema bootstrap disabled", label)
             log.info("%s database pool ready (attempt %d)", label, attempt)
             return pool
         except (OSError, asyncpg.PostgresError, TimeoutError) as exc:

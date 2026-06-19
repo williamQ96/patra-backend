@@ -24,10 +24,11 @@ Stable backend should leave these off. Dev backend should enable them.
 ```json
 {
   "DATABASE_URL": "<patradb-url>",
+  "DB_BOOTSTRAP_SCHEMA_ENABLED": "false",
   "TAPIS_AUTH_VALIDATION_ENABLED": "true",
-  "TAPIS_JWKS_URL": "<operator-provided-jwks-url>",
-  "TAPIS_ISSUER": "<operator-provided-issuer>",
-  "TAPIS_AUDIENCE": "<operator-provided-audience>",
+  "TAPIS_JWKS_URL": "https://icicleai.tapis.io/v3/oauth2/jwks",
+  "TAPIS_ISSUER": "https://icicleai.tapis.io/v3/tokens",
+  "TAPIS_AUDIENCE": "",
   "TAPIS_USERNAME_CLAIM": "tapis/username",
   "TAPIS_TOKEN_LEEWAY_SECONDS": "60",
   "ALLOW_UNVERIFIED_TAPIS_TOKEN_DEV_ONLY": "false",
@@ -43,11 +44,12 @@ Stable backend should leave these off. Dev backend should enable them.
 {
   "DATABASE_URL": "<patradb-url>",
   "SENSITIVE_DATABASE_URL": "<patradev-db-url>",
+  "DB_BOOTSTRAP_SCHEMA_ENABLED": "true",
   "ASSET_BACKUP_STORAGE": "database",
   "TAPIS_AUTH_VALIDATION_ENABLED": "true",
-  "TAPIS_JWKS_URL": "<operator-provided-jwks-url>",
-  "TAPIS_ISSUER": "<operator-provided-issuer>",
-  "TAPIS_AUDIENCE": "<operator-provided-audience>",
+  "TAPIS_JWKS_URL": "https://icicleai.tapis.io/v3/oauth2/jwks",
+  "TAPIS_ISSUER": "https://icicleai.tapis.io/v3/tokens",
+  "TAPIS_AUDIENCE": "",
   "TAPIS_USERNAME_CLAIM": "tapis/username",
   "TAPIS_TOKEN_LEEWAY_SECONDS": "60",
   "ALLOW_UNVERIFIED_TAPIS_TOKEN_DEV_ONLY": "false",
@@ -92,8 +94,11 @@ The backend prefers `Authorization: Bearer <token>` and supports
 configured JWKS endpoint and derives username/admin status server-side.
 `X-Patra-Username` and `X-Patra-Role` are ignored.
 
-Production deployments must obtain the exact JWKS URL, issuer, and audience
-from the Tapis tenant operator. Do not guess these values. Authentication fails
+The ICICLE production tenant publishes its RS256 signing key at
+`https://icicleai.tapis.io/v3/oauth2/jwks`. Current ICICLE access tokens use
+issuer `https://icicleai.tapis.io/v3/tokens` and do not carry an audience
+claim, so `TAPIS_AUDIENCE` is left empty. Reconfirm these values with the
+tenant operator if the issuer configuration changes. Authentication fails
 closed when validation is enabled but JWKS verification cannot be performed.
 
 The unverified development mode requires both:
@@ -109,6 +114,8 @@ for production or shared deployments.
 ## Database rules
 
 - `patrabackend` must not receive `SENSITIVE_DATABASE_URL`.
+- `patrabackend` sets `DB_BOOTSTRAP_SCHEMA_ENABLED=false`; schema changes are a
+  separate reviewed operation and never an incidental effect of a pod restart.
 - `patradev-backend` must receive both `DATABASE_URL` and `SENSITIVE_DATABASE_URL`.
 - `ASSET_BACKUP_STORAGE=database` keeps sensitive asset backup snapshots in `patradev-db` instead of local JSON files.
 - Schema migrations must be forward compatible.
