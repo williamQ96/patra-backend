@@ -37,8 +37,14 @@ Start from `backup/pod-config.backup.example.json`.
 
 - Supply `DATABASE_URL` through the Tapis secret/config mechanism. Prefer a
   PostgreSQL role with only the privileges required by `pg_dump`.
+- When the backup pod reaches the database through the public pod hostname,
+  use external TLS port `443` with `sslmode=require`; internal application
+  port `5432` may not be reachable from a separate pod.
 - Mount a dedicated Tapis volume at `/backups`.
 - Keep `BACKUP_INTERVAL_SECONDS=3600`.
+- Keep a finite `PGCONNECT_TIMEOUT` (the deployment default is 30 seconds) so
+  a networking regression fails the current attempt instead of blocking the
+  hourly loop indefinitely.
 - The default retention is 14 days. Retention removes only expired files from
   the backup volume; it never touches the live database.
 

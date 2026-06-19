@@ -8,7 +8,8 @@
     "BACKUP_DIR": "/backups",
     "BACKUP_INTERVAL_SECONDS": "3600",
     "BACKUP_RETENTION_DAYS": "14",
-    "BACKUP_PREFIX": "patradb-prod"
+    "BACKUP_PREFIX": "patradb-prod",
+    "PGCONNECT_TIMEOUT": "30"
   },
   "secret_map": {},
   "volume_mounts": {

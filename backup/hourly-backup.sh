@@ -7,12 +7,17 @@ BACKUP_DIR="${BACKUP_DIR:-/backups}"
 BACKUP_INTERVAL_SECONDS="${BACKUP_INTERVAL_SECONDS:-3600}"
 BACKUP_RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-14}"
 BACKUP_PREFIX="${BACKUP_PREFIX:-patradb-prod}"
+PGCONNECT_TIMEOUT="${PGCONNECT_TIMEOUT:-30}"
+export PGCONNECT_TIMEOUT
 
 case "${BACKUP_INTERVAL_SECONDS}" in
   ''|*[!0-9]*) echo "BACKUP_INTERVAL_SECONDS must be a positive integer" >&2; exit 2 ;;
 esac
 case "${BACKUP_RETENTION_DAYS}" in
   ''|*[!0-9]*) echo "BACKUP_RETENTION_DAYS must be a non-negative integer" >&2; exit 2 ;;
+esac
+case "${PGCONNECT_TIMEOUT}" in
+  ''|*[!0-9]*) echo "PGCONNECT_TIMEOUT must be a positive integer" >&2; exit 2 ;;
 esac
 
 mkdir -p "${BACKUP_DIR}"
@@ -36,15 +41,21 @@ backup_once() {
   trap 'rm -f "${temporary}" "${list_file}.partial" "${counts_file}.partial" "${checksum_file}.partial"' RETURN
 
   echo "[$(date -u +%FT%TZ)] Starting PostgreSQL backup ${stem}"
-  PGAPPNAME=patra-hourly-backup pg_dump \
-    --format=custom \
-    --compress=9 \
-    --no-owner \
-    --no-privileges \
-    --file="${temporary}" \
-    "${DATABASE_URL}"
+  if ! PGAPPNAME=patra-hourly-backup pg_dump \
+      --format=custom \
+      --compress=9 \
+      --no-owner \
+      --no-privileges \
+      --file="${temporary}" \
+      "${DATABASE_URL}"; then
+    echo "[$(date -u +%FT%TZ)] pg_dump failed" >&2
+    return 1
+  fi
 
-  pg_restore --list "${temporary}" > "${list_file}.partial"
+  if ! pg_restore --list "${temporary}" > "${list_file}.partial"; then
+    echo "[$(date -u +%FT%TZ)] pg_restore could not read the new dump" >&2
+    return 1
+  fi
 
   {
     printf 'table\trow_count\n'
@@ -63,11 +74,14 @@ backup_once() {
     done
   } > "${counts_file}.partial"
 
-  mv "${temporary}" "${archive}"
-  mv "${list_file}.partial" "${list_file}"
-  mv "${counts_file}.partial" "${counts_file}"
-  sha256sum "${archive}" > "${checksum_file}.partial"
-  mv "${checksum_file}.partial" "${checksum_file}"
+  if ! mv "${temporary}" "${archive}" \
+      || ! mv "${list_file}.partial" "${list_file}" \
+      || ! mv "${counts_file}.partial" "${counts_file}" \
+      || ! sha256sum "${archive}" > "${checksum_file}.partial" \
+      || ! mv "${checksum_file}.partial" "${checksum_file}"; then
+    echo "[$(date -u +%FT%TZ)] Could not finalize backup artifacts" >&2
+    return 1
+  fi
 
   echo "[$(date -u +%FT%TZ)] Backup completed: ${archive}"
 
